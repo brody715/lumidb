@@ -1,0 +1,15 @@
+[submodule "third-party/backward-cpp"]
+	path = third-party/backward-cpp
+	url = https://github.com/bombela/backward-cpp.git
+[submodule "third-party/fmt"]
+	path = third-party/fmt
+	url = https://github.com/fmtlib/fmt.git
+[submodule "third-party/acutest"]
+	path = third-party/acutest
+	url = https://github.com/mity/acutest.git
+[submodule "third-party/tabulate"]
+	path = third-party/tabulate
+	url = https://github.com/p-ranav/tabulate.git
+[submodule "third-party/argumentum"]
+	path = third-party/argumentum
+	url = https://github.com/mmahnic/argumentum.git

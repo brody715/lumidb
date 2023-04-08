@@ -1,0 +1,17 @@
+include_directories(../include)
+include_directories(../third-party ../third-party/acutest/include)
+link_libraries(lumidb-lib fmt::fmt)
+
+file(GLOB root_src_files "${CMAKE_CURRENT_SOURCE_DIR}/**/*.cc" "${CMAKE_CURRENT_SOURCE_DIR}/*.cc")
+foreach(filePath ${root_src_files})
+  file(RELATIVE_PATH fileRelPath ${CMAKE_CURRENT_SOURCE_DIR} ${filePath})
+  string(REGEX MATCH [[([^\.]*)\.cc$]] fileBasename ${fileRelPath})
+  set(exeName ${CMAKE_MATCH_1})
+  string(REGEX REPLACE [[/]] "_" exeName ${exeName})
+  message("Configuring Test ${exeName}")
+  add_executable(${exeName} ${fileRelPath} ${BACKWARD_ENABLE})
+  add_backward(${exeName})
+  target_include_directories(${exeName} PRIVATE ../include)
+  add_test(NAME ${exeName}
+         COMMAND ${CMAKE_BINARY_DIR}/test/${exeName})
+endforeach()
