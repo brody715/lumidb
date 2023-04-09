@@ -2,6 +2,7 @@
 
 #include <string_view>
 #include <vector>
+
 namespace lumidb {
 std::vector<std::string_view> split(std::string_view str,
                                     std::string_view delim);
@@ -15,4 +16,5 @@ class IdGenerator {
  private:
   int next_id_ = 1;
 };
+
 }  // namespace lumidb

@@ -22,6 +22,7 @@ LumiDB 是一个简单的内存型数据库，支持特殊的查询 DSL 操作�
 - [argumentum](https://github.com/mmahnic/argumentum): 命令行参数解析
 - [backward-cpp](https://github.com/bombela/backward-cpp): 异常栈帧打印
 - [tabulate](https://github.com/p-ranav/tabulate): 表格格式化输出
+- [isocline](https://github.com/daanx/isocline): 跨平台版 readline
 
 ## 功能完成情况
 

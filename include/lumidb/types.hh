@@ -17,8 +17,17 @@ namespace lumidb {
 using plugin_id_t = int;
 
 // TypeKind
-enum TypeKind {
-  T_NULL,
+enum class TypeKind {
+  T_NULL = 0,
+  T_ANY,
+  T_INT,
+  T_STRING,
+  T_NULL_INT,
+  T_NULL_STRING,
+};
+
+enum class ValueTypeKind : int {
+  T_NULL = 0,
   T_INT,
   T_STRING,
 };
@@ -45,11 +54,21 @@ struct Error {
   explicit Error(fmt::format_string<T...> fmt, T &&...args)
       : status(Status::ERROR), message(fmt::format(fmt, args...)) {}
 
-  Error add_message(std::string message) const {
+  template <typename... T>
+  Error add_message(fmt::format_string<T...> fmt, T &&...args) const {
     if (this->status == Status::OK) {
       return Error(Status::OK);
     }
-    return Error(fmt::format("{}: {}", this->message, message));
+
+    std::string message = fmt::format(fmt, args...);
+    return Error(fmt::format("{}: {}", message, this->message));
+  }
+
+  std::string to_string() const {
+    if (status == Status::OK) {
+      return "OK";
+    }
+    return fmt::format("Error: {}", message);
   }
 
   Status status = Status::OK;
@@ -82,7 +101,7 @@ class Result {
 
   bool is_ok() const { return error_.status == Status::OK; }
 
-  const Error &error() const { return error_; }
+  const Error &unwrap_err() const { return error_; }
 
   Status status() const { return error_.status; }
 
@@ -99,80 +118,151 @@ class Result {
 
 class AnyType {
  public:
-  AnyType(TypeKind kind) : kind_(kind) {}
-
   TypeKind kind() const { return kind_; }
+
+  static AnyType from_value_type(ValueTypeKind kind) {
+    switch (kind) {
+      case ValueTypeKind::T_NULL:
+        return AnyType(TypeKind::T_NULL);
+      case ValueTypeKind::T_INT:
+        return AnyType(TypeKind::T_INT);
+      case ValueTypeKind::T_STRING:
+        return AnyType(TypeKind::T_STRING);
+      default:
+        return AnyType(TypeKind::T_ANY);
+    }
+  }
+
+  static AnyType from_string() { return AnyType(TypeKind::T_STRING); }
+  static AnyType from_int() { return AnyType(TypeKind::T_INT); }
+  static AnyType from_null() { return AnyType(TypeKind::T_NULL); }
+  static AnyType from_any() { return AnyType(TypeKind::T_ANY); }
+
+  bool is_null() const { return kind_ == TypeKind::T_NULL; }
+  bool is_string() const { return kind_ == TypeKind::T_STRING; }
+  bool is_int() const { return kind_ == TypeKind::T_INT; }
+  bool is_any() const { return kind_ == TypeKind::T_ANY; }
+  bool is_null_string() const { return kind_ == TypeKind::T_NULL_STRING; }
+  bool is_null_int() const { return kind_ == TypeKind::T_NULL_INT; }
+
+  bool is_subtype_of(const AnyType &other) const {
+    switch (other.kind_) {
+      case TypeKind::T_ANY:
+        return true;
+      case TypeKind::T_NULL_INT:
+        return kind_ == TypeKind::T_INT || kind_ == TypeKind::T_NULL_INT ||
+               kind_ == TypeKind::T_NULL;
+      case TypeKind::T_NULL_STRING:
+        return kind_ == TypeKind::T_STRING ||
+               kind_ == TypeKind::T_NULL_STRING || kind_ == TypeKind::T_NULL;
+      default:
+        return kind_ == other.kind_;
+    }
+  }
 
   static Result<AnyType> parse_string(std::string str) {
     if (str == "int")
-      return AnyType(T_INT);
+      return AnyType(TypeKind::T_INT);
     else if (str == "string")
-      return AnyType(T_STRING);
+      return AnyType(TypeKind::T_STRING);
+    else if (str == "int?")
+      return AnyType(TypeKind::T_NULL_INT);
+    else if (str == "string?")
+      return AnyType(TypeKind::T_NULL_STRING);
     else if (str == "null")
-      return AnyType(T_NULL);
+      return AnyType(TypeKind::T_NULL);
+    else if (str == "any")
+      return AnyType(TypeKind::T_ANY);
     else
       return Error("Unknown type: " + str);
   }
 
-  std::string to_string() {
+  std::string name() const {
     switch (kind_) {
-      case T_INT:
+      case TypeKind::T_INT:
         return "int";
-      case T_STRING:
+      case TypeKind::T_STRING:
         return "string";
-      case T_NULL:
+      case TypeKind::T_ANY:
+        return "any";
+      case TypeKind::T_NULL:
         return "null";
+      case TypeKind::T_NULL_INT:
+        return "int?";
+      case TypeKind::T_NULL_STRING:
+        return "string?";
+      default:
+        return "unknown";
     }
   };
 
-  bool is_null() const { return kind_ == T_NULL; }
+ private:
+  AnyType(TypeKind kind) : kind_(kind) {}
 
  private:
-  TypeKind kind_ = T_NULL;
+  TypeKind kind_ = TypeKind::T_NULL;
 };
 
 // Immutable value type
 class AnyValue {
  public:
-  AnyValue() : kind_(T_NULL) {}
+  AnyValue(std::string_view str)
+      : AnyValue(ValueTypeKind::T_STRING, std::string(str)) {}
+  AnyValue(std::string str) : AnyValue(ValueTypeKind::T_STRING, str) {}
+  AnyValue(int value) : AnyValue(ValueTypeKind::T_INT, value) {}
+  AnyValue() : AnyValue(ValueTypeKind::T_NULL, {}) {}
 
-  AnyValue(int value) : kind_(T_INT), value_(value) {}
+  ValueTypeKind kind() const { return kind_; }
+  AnyType type() const { return type_; }
 
-  AnyValue(std::string value) : kind_(T_STRING), value_(value) {}
+  static AnyValue from_string(std::string_view str) {
+    return AnyValue(ValueTypeKind::T_STRING, std::string(str));
+  }
+  static AnyValue from_string(std::string str) {
+    return AnyValue(ValueTypeKind::T_STRING, str);
+  }
 
-  AnyValue(std::string_view value)
-      : kind_(T_STRING), value_(std::string(value)) {}
+  static AnyValue from_int(int value) {
+    return AnyValue(ValueTypeKind::T_INT, value);
+  }
 
-  TypeKind kind() const { return kind_; }
-
-  static AnyValue from_string(std::string str) { return AnyValue(str); }
-
-  static AnyValue from_int(int value) { return AnyValue(value); }
-
-  static AnyValue from_null() { return AnyValue(); }
+  static AnyValue from_null() { return AnyValue(ValueTypeKind::T_NULL, 0); }
 
   bool operator==(const AnyValue &other) const {
     if (kind_ != other.kind_) return false;
     switch (kind_) {
-      case T_INT:
+      case ValueTypeKind::T_INT:
         return as_int() == other.as_int();
-      case T_STRING:
+      case ValueTypeKind::T_STRING:
         return as_string() == other.as_string();
-      case T_NULL:
+      case ValueTypeKind::T_NULL:
         return true;
     }
   }
 
   bool operator!=(const AnyValue &other) const { return !(*this == other); }
 
-  bool is_null() const { return kind_ == T_NULL; }
+  bool is_instance_of(const AnyType &type) const {
+    return type.is_subtype_of(this->type());
+  }
+
+  bool is_null() const { return kind_ == ValueTypeKind::T_NULL; }
+  bool is_string() const { return kind_ == ValueTypeKind::T_STRING; }
+  bool is_int() const { return kind_ == ValueTypeKind::T_INT; }
 
   int as_int() const { return std::get<int>(value_); }
   const std::string &as_string() const { return std::get<std::string>(value_); }
 
+  std::string format_to_string() const;
+
  private:
-  TypeKind kind_;
+  AnyValue(ValueTypeKind kind, std::variant<int, std::string> value)
+      : kind_(kind), value_(value), type_(AnyType::from_value_type(kind)) {}
+
+ private:
+  ValueTypeKind kind_;
   std::variant<int, std::string> value_;
+  AnyType type_;
 };
 
 std::ostream &operator<<(std::ostream &os, const AnyValue &value);

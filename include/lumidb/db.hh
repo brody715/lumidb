@@ -27,7 +27,7 @@ struct ReportErrorParams {
 };
 
 struct CreateTableParams {
-  std::string name;
+  TablePtr table;
 };
 
 struct LoadPluginParams {
@@ -39,6 +39,7 @@ struct RegisterFunctionParams {
 };
 
 // Database Interface, can be accessed by plugins, functions ...
+// The implementation of this interface is in src/lumidb/db.cc
 class Database {
  public:
   Database() = default;
@@ -59,6 +60,8 @@ class Database {
   // function related methods
   virtual Result<FunctionPtr> register_function(
       const RegisterFunctionParams &params) = 0;
+  virtual Result<bool> register_function_list(
+      const std::vector<RegisterFunctionParams> &params_list) = 0;
   virtual Result<bool> unregister_function(const std::string &name) = 0;
   virtual Result<FunctionPtr> get_function(const std::string &name) const = 0;
   virtual Result<FunctionPtrList> list_functions() const = 0;
@@ -74,5 +77,5 @@ using DatabasePtr = std::shared_ptr<Database>;
 
 struct CreateDatabaseParams {};
 
-DatabasePtr create_database(const CreateDatabaseParams &params);
+Result<DatabasePtr> create_database(const CreateDatabaseParams &params);
 }  // namespace lumidb

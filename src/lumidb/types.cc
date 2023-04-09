@@ -25,17 +25,26 @@ std::ostream &lumidb::operator<<(std::ostream &os, const QueryFunction &obj) {
 
 std::ostream &lumidb::operator<<(std::ostream &os, const AnyValue &value) {
   switch (value.kind()) {
-    case T_INT:
+    case ValueTypeKind::T_INT:
       os << std::to_string(value.as_int());
       break;
-    case T_STRING:
+    case ValueTypeKind::T_STRING:
       os << std::quoted(value.as_string(), '\'');
       break;
-    case T_NULL:
+    case ValueTypeKind::T_NULL:
       os << "null";
       break;
+    default:
+      os << "unsupported type=" << static_cast<int>(value.kind());
   }
   return os;
+}
+
+std::string AnyValue::format_to_string() const {
+  thread_local static std::ostringstream os;
+  os.str("");
+  os << *this;
+  return os.str();
 }
 
 Result<AnyValue> parse_value(string_view input) {
@@ -44,21 +53,21 @@ Result<AnyValue> parse_value(string_view input) {
   }
 
   if (input[0] == '"' && input[input.length() - 1] == '"') {
-    return AnyValue(input.substr(1, input.length() - 2));
+    return AnyValue::from_string(input.substr(1, input.length() - 2));
   }
 
   if (input[0] == '\'' && input[input.length() - 1] == '\'') {
-    return AnyValue(input.substr(1, input.length() - 2));
+    return AnyValue::from_string(input.substr(1, input.length() - 2));
   }
 
   if (input == "null") {
-    return AnyValue();
+    return AnyValue::from_null();
   }
 
   // parse number
   if (isdigit(input[0]) || input[0] == '-') {
     try {
-      return AnyValue(std::stoi(std::string(input)));
+      return AnyValue::from_int(std::stoi(std::string(input)));
     } catch (const std::exception &e) {
       return Error("invalid number: {}", input);
     }
@@ -76,6 +85,11 @@ Result<QueryFunction> parse_query_functions(string_view input) {
 
   auto first_lp = input.find('(');
   auto last_rp = input.rfind(')');
+
+  // no parentheses, just a function name
+  if (first_lp == string_view::npos && last_rp == string_view::npos) {
+    return QueryFunction{.name = std::string(input)};
+  }
 
   if (first_lp == string_view::npos || last_rp == string_view::npos) {
     return Error("invalid function format, parentheses not match");
@@ -95,7 +109,7 @@ Result<QueryFunction> parse_query_functions(string_view input) {
     auto value = parse_value(arg_trim);
 
     if (value.has_error()) {
-      return value.error().add_message(
+      return value.unwrap_err().add_message(
           fmt::format("in function {}", func.name));
     }
 
@@ -115,7 +129,8 @@ Result<Query> lumidb::parse_query(string_view input) {
   for (auto &part : parts) {
     auto func = parse_query_functions(trim(part));
     if (func.has_error()) {
-      return func.error().add_message("in query: part=" + std::string(part));
+      return func.unwrap_err().add_message("in query: part=" +
+                                           std::string(part));
     }
     query.functions.push_back(func.unwrap());
   }

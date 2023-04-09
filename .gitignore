@@ -131,3 +131,4 @@ $RECYCLE.BIN/
 # End of https://www.toptal.com/developers/gitignore/api/linux,windows,macos,c++,visualstudiocode
 /build
 .cache
+lumidb_history.txt

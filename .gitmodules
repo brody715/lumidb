@@ -13,3 +13,6 @@
 [submodule "third-party/argumentum"]
 	path = third-party/argumentum
 	url = https://github.com/mmahnic/argumentum.git
+[submodule "third-party/isocline"]
+	path = third-party/isocline
+	url = https://github.com/daanx/isocline

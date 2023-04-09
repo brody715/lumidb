@@ -1,4 +1,5 @@
 #include <memory>
+#include <string>
 
 #include "db.hh"
 #include "lumidb/types.hh"
@@ -9,6 +10,9 @@ class Plugin {
  public:
   ~Plugin() = default;
 
+  // get plugin id
+  plugin_id_t id() const { return id_; }
+
   // get plugin name
   std::string name() const { return ""; };
 
@@ -18,8 +22,7 @@ class Plugin {
   // get plugin version
   std::string version() const { return ""; };
 
-  // get plugin id
-  plugin_id_t id() const { return id_; }
+  std::string load_path() const { return ""; };
 
  private:
   // plugin id

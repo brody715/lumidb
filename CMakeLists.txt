@@ -25,16 +25,20 @@ add_subdirectory(third-party/backward-cpp)
 add_subdirectory(third-party/fmt)
 add_subdirectory(third-party/tabulate)
 
+## special handling for isocline
+add_library(isocline STATIC third-party/isocline/src/isocline.c)
+
 # add include files
 set(lumidb_INCLUDE_DIRS include
   third-party/argumentum/include
   third-party/fmt/include
   third-party/tabulate/include
   third-party/acutest/include
+  third-party/isocline/include
 )
 
 add_executable(lumidb main.cc ${BACKWARD_ENABLE})
-target_link_libraries(lumidb lumidb-lib fmt::fmt Argumentum::argumentum)
+target_link_libraries(lumidb lumidb-lib fmt::fmt Argumentum::argumentum isocline)
 
 target_include_directories(lumidb PUBLIC ${lumidb_INCLUDE_DIRS})
 target_include_directories(lumidb-lib PUBLIC ${lumidb_INCLUDE_DIRS})
