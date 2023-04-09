@@ -22,7 +22,7 @@ build-test:
 	cd build && make test
 
 run:
-	./build/lumidb ${ARGS}
+	./build/lumidb --in datas/students.in ${ARGS}
 
 test:
 	cd build && make test

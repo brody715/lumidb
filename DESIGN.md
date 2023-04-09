@@ -193,7 +193,7 @@ LuaDBPluginDef LUMI_DB_ATTRIBUTE_WEAK lumi_db_get_plugin_def() {
 
 值包括三种类型
 
-- int
+- float
 - string
 - null
 
@@ -250,7 +250,7 @@ string 类型的字面值可以用单引号或双引号包裹
    **Examples**
 
    ```py
-   create_table("students") | add_field("姓名", "string") | add_field("语文", "int") | add_field("数学", "int") | add_field("英语", "int")
+   create_table("students") | add_field("姓名", "string") | add_field("语文", "float?") | add_field("数学", "float?") | add_field("英语", "float?")
    ```
 
 3. 删除表
@@ -421,7 +421,7 @@ string 类型的字面值可以用单引号或双引号包裹
 
     ```py
     load_plugin(<string:plugin-path>)
-    unload_plugin(<int:plugin-id>)
+    unload_plugin(<string:plugin-id>)
     ```
 
     **Examples**
@@ -440,7 +440,7 @@ string 类型的字面值可以用单引号或双引号包裹
     add_timer(<string:duration>, <string:command>)
 
     # 删除定时器
-    del_timer(<int:timer-id>)
+    del_timer(<string:timer-id>)
 
     # 列出所有定时器
     show_timers()

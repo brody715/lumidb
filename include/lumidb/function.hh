@@ -13,6 +13,8 @@ namespace lumidb {
 
 class FunctionSignature {
  public:
+  FunctionSignature() = default;
+
   static FunctionSignature make(std::vector<AnyType> param_types) {
     return FunctionSignature(param_types, false);
   }
@@ -42,7 +44,7 @@ class FunctionSignature {
 
       for (size_t i = 0; i < args.size(); i++) {
         if (!args[i].is_instance_of(type)) {
-          return Error("{} argument type mismatch, expected {}, got {}", i,
+          return Error("arg {} type mismatch, expected {}, got {}", i + 1,
                        type.name(), args[i].type().name());
         }
       }
@@ -153,6 +155,8 @@ class BaseFunction : public Function {
   BaseFunction() = delete;
   virtual ~BaseFunction() = default;
 
+  BaseFunction(std::string name) : name_(name) {}
+
   BaseFunction(std::string name, FunctionSignature signature)
       : name_(name), signature_(signature) {}
 
@@ -160,6 +164,17 @@ class BaseFunction : public Function {
   const FunctionSignature& signature() const override { return signature_; }
   std::string description() const override { return description_; }
 
+  // set variadic signature
+  void set_signature_variadic(AnyType param_type) {
+    signature_ = FunctionSignature::make_variadic(param_type);
+  }
+
+  // set non variadic signature
+  void set_signature(std::vector<AnyType> param_types) {
+    signature_ = FunctionSignature::make(param_types);
+  }
+
+  void set_signature(FunctionSignature signature) { signature_ = signature; }
   void add_description(std::string description) { description_ += description; }
 
   bool can_leaf() const override { return false; }

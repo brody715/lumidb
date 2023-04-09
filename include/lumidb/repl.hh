@@ -1,6 +1,7 @@
 #pragma once
 
 #include <deque>
+#include <istream>
 #include <map>
 #include <memory>
 #include <string>
@@ -93,8 +94,14 @@ class REPL {
 
   Result<bool> init();
 
+  // pre run a script
+  void pre_run(std::istream &in);
+
   // start REPL
   int run_loop();
+
+ private:
+  bool handle_input(std::string_view input);
 
  private:
   DatabasePtr db_;

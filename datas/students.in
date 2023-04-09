@@ -1,0 +1,3 @@
+create_table("stu") | add_field("姓名", "string") | add_field("语文", "float?") | add_field("数学", "float?") | add_field("英语", "float?")
+insert("stu") | add_row("A", 0, 0, 0) | add_row("张三", 80, 81, 85)
+insert("stu") | load_csv("./datas/students.csv") 

@@ -20,6 +20,11 @@ using FunctionPtrList = std::vector<FunctionPtr>;
 using TablePtrList = std::vector<TablePtr>;
 using PluginPtrList = std::vector<PluginPtr>;
 
+template <typename... Args>
+TablePtr make_table_ptr(Args &&...args) {
+  return std::make_shared<Table>(std::forward<Args...>(args...));
+}
+
 struct ReportErrorParams {
   std::string source;
   std::string name;

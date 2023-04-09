@@ -1,3 +1,4 @@
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -8,6 +9,7 @@
 #include "testlib.hh"
 
 using namespace std;
+using namespace lumidb;
 
 void test_strings_trim() {
   struct TestCase {
@@ -88,10 +90,43 @@ void test_parse_query() {
   }
 }
 
+void test_parse_csv() {
+  struct TestCase {
+    string input;
+    bool expected_error;
+    lumidb::CSVObject expected;
+  };
+
+  vector<TestCase> cases{
+      {"a1,a2,a3\n1,2,3\n4,5,6",
+       false,
+       {{"a1", "a2", "a3"}, {{"1", "2", "3"}, {"4", "5", "6"}}}},
+      {"a1,a2\n1,2\n1,2,3", true, {}},
+  };
+
+  for (size_t i = 0; i < cases.size(); i++) {
+    TEST_CASE_("%ld", i);
+    auto &c = cases[i];
+    std::stringstream ss(c.input);
+    auto result = lumidb::parse_csv(ss);
+    if (c.expected_error) {
+      TEST_CHECK_(result.has_error(), "%s",
+                  fmt::format("input error: {}", c.input).c_str());
+    } else {
+      TEST_CHECK_(result.is_ok(), "%s",
+                  fmt::format("input error: {}", c.input).c_str());
+      auto got = result.unwrap();
+      TEST_CHECK_(got == c.expected, "%s",
+                  fmt::format("input error: i={}", i).c_str());
+    }
+  }
+}
+
 #ifndef DEBUG_MAIN
 TEST_LIST = {TEST_FUNC(test_strings_trim),
              TEST_FUNC(test_strings_split),
              TEST_FUNC(test_parse_query),
+             TEST_FUNC(test_parse_csv),
              {NULL, NULL}};
 #endif
 

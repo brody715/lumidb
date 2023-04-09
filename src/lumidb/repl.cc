@@ -1,7 +1,10 @@
 #include "lumidb/repl.hh"
 
+#include <cstdlib>
 #include <iostream>
+#include <istream>
 #include <memory>
+#include <string_view>
 
 #include "../../third-party/isocline/src/completions.h"
 #include "isocline.h"
@@ -93,6 +96,34 @@ Result<bool> REPL::init() {
 
 REPL::~REPL() {}
 
+void log_error(const std::string &msg) {
+  ic_printf("[red]Error: %s[/red]\n", msg.c_str());
+}
+
+void log_warning(const std::string &msg) {
+  ic_printf("[yellow]Warn: %s[/yellow]\n", msg.c_str());
+}
+
+void log_info(const std::string &msg) {
+  ic_printf("[green]Info: %s[/green]\n", msg.c_str());
+}
+
+void REPL::pre_run(std::istream &in) {
+  std::string line;
+  while (std::getline(in, line)) {
+    line = trim(line);
+    if (line.empty()) {
+      continue;
+    }
+
+    std::cout << "lumidb> " << line << std::endl;
+
+    if (!handle_input(line)) {
+      break;
+    }
+  }
+}
+
 int REPL::run_loop() {
   while (true) {
     std::string line;
@@ -101,31 +132,46 @@ int REPL::run_loop() {
       break;
     }
 
-    if (line == "exit") {
+    if (!handle_input(line)) {
       break;
-    }
-
-    line = trim(line);
-
-    if (line.empty()) {
-      continue;
-    }
-
-    auto query_res = parse_query(line);
-
-    if (query_res.has_error()) {
-      std::cout << query_res.unwrap_err().to_string() << std::endl;
-      continue;
-    }
-
-    auto result = db_->execute(query_res.unwrap());
-    if (result.is_ok()) {
-      auto table = result.unwrap();
-      table->dump(std::cout) << std::endl;
-    } else {
-      std::cout << result.unwrap_err().to_string() << std::endl;
     }
   }
 
   return 0;
 };
+
+// return false if exit
+bool REPL::handle_input(std::string_view input) {
+  if (input == "exit") {
+    return false;
+  }
+
+  input = trim(input);
+
+  if (input.empty()) {
+    return true;
+  }
+
+  if (input[0] == '!') {
+    auto cmd = input.substr(1);
+    std::system(cmd.data());
+    return true;
+  }
+
+  auto query_res = parse_query(input);
+
+  if (query_res.has_error()) {
+    log_error(query_res.unwrap_err().to_string());
+    return true;
+  }
+
+  auto result = db_->execute(query_res.unwrap());
+  if (result.is_ok()) {
+    auto table = result.unwrap();
+    table->dump(std::cout) << std::endl;
+  } else {
+    log_error(result.unwrap_err().to_string());
+  }
+
+  return true;
+}

@@ -1,7 +1,13 @@
 #include "lumidb/utils.hh"
+
 #include <cctype>
+#include <optional>
+#include <string>
+
+#include "lumidb/types.hh"
 
 using namespace std;
+using namespace lumidb;
 
 std::vector<std::string_view> lumidb::split(std::string_view str,
                                             std::string_view delim) {
@@ -28,3 +34,41 @@ std::string_view lumidb::trim(std::string_view str) {
   }
   return str.substr(start, end - start + 1);
 }
+
+Result<CSVObject> lumidb::parse_csv(std::istream &is, std::string_view delim) {
+  std::string line;
+  if (!std::getline(is, line)) {
+    return Error("empty file");
+  }
+
+  CSVObject obj;
+
+  auto headers = split(line, delim);
+
+  for (auto &header : headers) {
+    obj.headers.push_back(std::string(trim(header)));
+  }
+
+  int line_no = 0;
+  while (std::getline(is, line)) {
+    line_no++;
+
+    auto fields = split(line, delim);
+    if (fields.size() != obj.headers.size()) {
+      return Error(
+          "row size not matched with headers, line={}, expected={}, got={}",
+          line_no, obj.headers.size(), fields.size());
+    }
+
+    CSVObject::Row row;
+    for (auto &field : fields) {
+      auto field_val = trim(field);
+      row.emplace_back(field_val);
+    }
+
+    obj.rows.emplace_back(std::move(row));
+  }
+
+  return obj;
+}
+

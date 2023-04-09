@@ -50,7 +50,11 @@ class MemoryDatabase : public lumidb::Database {
   virtual Result<PluginPtr> load_plugin(
       const LoadPluginParams &params) override {
     auto id = plugin_id_gen_.next_id();
-    auto plugin = lumidb::load_plugin(id, params);
+    auto plugin = Plugin::load_plugin(InternalLoadPluginParams{
+        .db = this,
+        .id = id,
+        .path = params.path,
+    });
     if (plugin.has_error()) {
       return plugin.unwrap_err();
     }
@@ -122,13 +126,20 @@ class MemoryDatabase : public lumidb::Database {
     args_list.reserve(query.functions.size());
 
     for (auto &func : query.functions) {
-      auto func_ptr = _get_function(func.name);
-      if (func_ptr.has_error()) {
-        return func_ptr.unwrap_err().add_message(
-            "failed to resolve function: {}", func.name);
+      auto func_ptr_res = _get_function(func.name);
+      if (func_ptr_res.has_error()) {
+        return func_ptr_res.unwrap_err().add_message("failed to resolve");
       }
-      funcs.push_back(func_ptr.unwrap());
+      auto func_ptr = func_ptr_res.unwrap();
 
+      // check arguments
+      auto check_res = func_ptr->signature().check(func.arguments);
+      if (check_res.has_error()) {
+        return check_res.unwrap_err().add_message(
+            "function {} typecheck failed", func_ptr->name());
+      }
+
+      funcs.push_back(func_ptr);
       args_list.push_back(func.arguments);
     }
 
