@@ -112,6 +112,8 @@ extern "C" ::lumidb::LumiDBPluginDef LUMI_DB_ATTRIBUTE_WEAK lumi_db_get_plugin_d
 
 在插件类中，可以调用 LumiDB C++ 接口，注册自定义函数
 
+见 [./src/plugins/timer.cc](./src/plugins/timer.cc)
+
 ```cpp
 #include <iostream>
 
@@ -120,22 +122,19 @@ extern "C" ::lumidb::LumiDBPluginDef LUMI_DB_ATTRIBUTE_WEAK lumi_db_get_plugin_d
 
 using namespace lumidb;
 
-class MyPlugin {
-public:
-  MyPlugin(db *lumidb::Database): db(db) {}
-  ~MyPlugin() {}
+class TimerPlugin {
+ public:
+  TimerPlugin(lumidb::Database *db) : db(db) {}
+  ~TimerPlugin() {}
 
   int on_load() {
-    auto res = db.registerFunction({
-      "show_timers",
-      ...
-    });
+    auto res = db->register_function_list({});
 
     if (res.has_error()) {
-      db.report_error({
-        .source = "plugin",
-        .name = "my-plugin",
-        .error = res.error(),
+      db->report_error({
+          .source = "plugin",
+          .name = "timer-plugin",
+          .error = res.unwrap_err(),
       });
       return 1;
     }
@@ -143,48 +142,44 @@ public:
     return 0;
   }
 
-private:
+ private:
   lumidb::Database *db;
 };
 
 extern "C" {
-LuaDBPluginDef LUMI_DB_ATTRIBUTE_WEAK lumi_db_get_plugin_def() {
+LumiDBPluginDef LUMI_DB_ATTRIBUTE_WEAK lumi_db_get_plugin_def() {
   static LumiDBPluginDef def = {
-    "my-plugin",
-    "0.0.1",
-    "my plugin",
-    [](LumiDBPluginContext *ctx) {
-      // cast to lumidb::Database
-      auto db = dynamic_cast<lumidb::Database *>(ctx.db);
-      if (db == nullptr) {
-        ctx.error = "failed to cast to lumidb::Database";
-        return 1;
-      }
+      "timer-plugin", "0.0.1", "LumiDB Timer Plugin",
+      [](LumiDBPluginContext *ctx) {
+        // cast to lumidb::Database
+        auto db = reinterpret_cast<lumidb::Database *>(ctx->db);
+        if (db == nullptr) {
+          ctx->error = "failed to cast to lumidb::Database";
+          return 1;
+        }
 
-      auto plugin = new MyPlugin(db);
-      ctx->user_data = plugin;
-      int ret = plugin->on_load();
+        auto plugin = new TimerPlugin(db);
+        ctx->user_data = plugin;
+        int ret = plugin->on_load();
 
-      if (ret != 0) {
-        delete plugin;
-        ctx->user_data = nullptr;
-      }
+        if (ret != 0) {
+          delete plugin;
+          ctx->user_data = nullptr;
+        }
 
-      return ret;
-    },
-    [](LumiDBPluginContext *ctx) {
-      if (ctx->user_data != nullptr) {
-        delete reinterpret_cast<MyPlugin *>(ctx->user_data);
-        ctx->user_data = nullptr;
-      }
+        return ret;
+      },
+      [](LumiDBPluginContext *ctx) {
+        if (ctx->user_data != nullptr) {
+          delete reinterpret_cast<TimerPlugin *>(ctx->user_data);
+          ctx->user_data = nullptr;
+        }
 
-      return 0;
-    }
-  };
+        return 0;
+      }};
   return def;
 }
 }
-
 ```
 
 ## Query DSL 语法

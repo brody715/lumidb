@@ -164,6 +164,8 @@ class BaseFunction : public Function {
   const FunctionSignature& signature() const override { return signature_; }
   std::string description() const override { return description_; }
 
+  void set_name(std::string name) { name_ = name; }
+
   // set variadic signature
   void set_signature_variadic(AnyType param_type) {
     signature_ = FunctionSignature::make_variadic(param_type);
@@ -174,7 +176,6 @@ class BaseFunction : public Function {
     signature_ = FunctionSignature::make(param_types);
   }
 
-  void set_signature(FunctionSignature signature) { signature_ = signature; }
   void add_description(std::string description) { description_ += description; }
 
   bool can_leaf() const override { return false; }

@@ -1,7 +1,9 @@
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "lumidb/types.hh"
@@ -23,6 +25,16 @@ using PluginPtrList = std::vector<PluginPtr>;
 template <typename... Args>
 TablePtr make_table_ptr(Args &&...args) {
   return std::make_shared<Table>(std::forward<Args...>(args...));
+}
+
+template <typename T, typename... Args>
+FunctionPtr make_function_ptr(Args &&...args) {
+  return std::make_shared<T>(std::forward<Args...>(args...));
+}
+
+template <typename T>
+FunctionPtr make_function_ptr() {
+  return std::make_shared<T>();
 }
 
 struct ReportErrorParams {
@@ -50,6 +62,11 @@ class Database {
   Database() = default;
   virtual ~Database() = default;
 
+  // metadata
+  // every time the database (table, plugins, functions) are modified, the
+  // version is increased
+  virtual int64_t version() const = 0;
+
   // table related methods
   virtual Result<TablePtr> create_table(const CreateTableParams &params) = 0;
   virtual Result<bool> drop_table(const std::string &name) = 0;
@@ -68,14 +85,20 @@ class Database {
   virtual Result<bool> register_function_list(
       const std::vector<RegisterFunctionParams> &params_list) = 0;
   virtual Result<bool> unregister_function(const std::string &name) = 0;
+  virtual Result<bool> unregister_function_list(
+      const std::vector<std::string> &name) = 0;
   virtual Result<FunctionPtr> get_function(const std::string &name) const = 0;
   virtual Result<FunctionPtrList> list_functions() const = 0;
 
   // execute query, return result as a table
+  // execute must be thread-safe, and it shouldn't hold a lock when executing
+  // functions to avoid deadlock
   virtual Result<TablePtr> execute(const Query &query) = 0;
 
-  // helper function
+  // helper function, used in functions or plugins
   virtual void report_error(const ReportErrorParams &params) = 0;
+  virtual void logging(Logger::LogLevel level, const std::string &msg) = 0;
+  virtual void set_logger(LoggerPtr logger) = 0;
 };
 
 using DatabasePtr = std::shared_ptr<Database>;

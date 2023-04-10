@@ -4,6 +4,7 @@
 #include <any>
 #include <cstddef>
 #include <fstream>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <set>
@@ -11,6 +12,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "fmt/core.h"
 #include "fmt/ostream.h"
 #include "lumidb/db.hh"
 #include "lumidb/plugin.hh"
@@ -79,6 +81,51 @@ struct QueryData {
 }  // namespace datas
 
 // functions
+
+class DescTableFunction : public helper::BaseRootFunction {
+ public:
+  DescTableFunction() : BaseFunction("desc_table") {
+    set_signature({AnyType::from_string()});
+    add_description("describe table");
+  }
+
+  Result<bool> execute_root(RootFunctionExecuteContext &ctx) override {
+    return true;
+  }
+
+  Result<bool> finalize_root(RootFunctionFinalizeContext &ctx) override {
+    auto table_name = ctx.args[0].as_string();
+
+    auto table_res = ctx.db->get_table(table_name);
+    if (table_res.has_error()) {
+      return table_res.unwrap_err();
+    }
+    auto table = table_res.unwrap();
+
+    TableSchema out_schema;
+    for (auto &field : table->schema().fields()) {
+      out_schema.add_field(field.name, AnyType::from_string());
+    }
+    out_schema.add_field("rows", AnyType::from_float());
+
+    auto out_table = Table::create_ptr("desc_table", out_schema);
+
+    ValueList row;
+    for (auto &field : table->schema().fields()) {
+      row.emplace_back(field.type.name());
+    }
+    row.emplace_back(static_cast<float>(table->num_rows()));
+
+    auto res1 = out_table->add_row(row);
+    if (res1.has_error()) {
+      return res1.unwrap_err();
+    }
+
+    ctx.result = out_table;
+
+    return true;
+  }
+};
 
 class ShowTablesFunction : public helper::BaseRootFunction {
  public:
@@ -165,7 +212,7 @@ class ShowPluginsFunction : public helper::BaseRootFunction {
     }
 
     TableSchema schema;
-    schema.add_field("id", AnyType::from_float());
+    schema.add_field("id", AnyType::from_string());
     schema.add_field("name", AnyType::from_string());
     schema.add_field("version", AnyType::from_string());
     schema.add_field("description", AnyType::from_string());
@@ -174,8 +221,11 @@ class ShowPluginsFunction : public helper::BaseRootFunction {
     auto table = Table::create_ptr("", schema);
 
     for (auto &p : plugins.unwrap()) {
-      table->add_row(
+      auto res = table->add_row(
           {p->id(), p->name(), p->version(), p->description(), p->load_path()});
+      if (res.has_error()) {
+        return res.unwrap_err();
+      }
     }
 
     ctx.result = table;
@@ -186,9 +236,9 @@ class ShowPluginsFunction : public helper::BaseRootFunction {
 // Plugins function
 class LoadPluginFunction : public helper::BaseRootFunction {
  public:
-  LoadPluginFunction()
-      : BaseFunction("show_plugins", FunctionSignature::make({})) {
-    add_description("show plugins in the database");
+  LoadPluginFunction() : BaseFunction("load_plugin") {
+    set_signature({AnyType::from_string()});
+    add_description("load plugin to the database");
   }
 
   Result<bool> execute_root(RootFunctionExecuteContext &ctx) override {
@@ -196,13 +246,14 @@ class LoadPluginFunction : public helper::BaseRootFunction {
   }
 
   Result<bool> finalize_root(RootFunctionFinalizeContext &ctx) override {
-    auto plugins = ctx.db->list_plugins();
-    if (plugins.has_error()) {
-      return plugins.unwrap_err();
+    auto load_path = ctx.args[0].as_string();
+    auto plugin_res = ctx.db->load_plugin(LoadPluginParams{load_path});
+    if (plugin_res.has_error()) {
+      return plugin_res.unwrap_err();
     }
 
     TableSchema schema;
-    schema.add_field("id", AnyType::from_float());
+    schema.add_field("id", AnyType::from_string());
     schema.add_field("name", AnyType::from_string());
     schema.add_field("version", AnyType::from_string());
     schema.add_field("description", AnyType::from_string());
@@ -210,12 +261,48 @@ class LoadPluginFunction : public helper::BaseRootFunction {
 
     auto table = Table::create_ptr("", schema);
 
-    for (auto &p : plugins.unwrap()) {
-      table->add_row(
-          {p->id(), p->name(), p->version(), p->description(), p->load_path()});
+    auto p = plugin_res.unwrap();
+
+    auto res2 = table->add_row(
+        {p->id(), p->name(), p->version(), p->description(), p->load_path()});
+
+    if (res2.has_error()) {
+      return res2.unwrap_err();
     }
 
     ctx.result = table;
+    return true;
+  }
+};
+
+class UnloadPluginFunction : public helper::BaseRootFunction {
+ public:
+  UnloadPluginFunction() : BaseFunction("unload_plugin") {
+    set_signature({AnyType::from_string()});
+    add_description("unload plugin");
+  }
+
+  Result<bool> execute_root(RootFunctionExecuteContext &ctx) override {
+    return true;
+  }
+
+  Result<bool> finalize_root(RootFunctionFinalizeContext &ctx) override {
+    auto plugin_id = ctx.args[0].as_string();
+
+    auto res = ctx.db->unload_plugin(plugin_id);
+    if (res.has_error()) {
+      return res.unwrap_err();
+    }
+
+    // execute show_plugins
+    auto show_res = ctx.db->execute({{{"show_plugins"}}});
+
+    if (show_res.has_error()) {
+      return show_res.unwrap_err();
+    }
+
+    ctx.result = show_res.unwrap();
+
     return true;
   }
 };
@@ -283,8 +370,8 @@ class AddFieldFunction : public helper::BaseLeafFunction {
                      FunctionSignature::make(
                          {AnyType::from_string(), AnyType::from_string()})) {
     add_description(
-        "add a field to the table. Supported types are `int`, `string`, "
-        "`int?`, `string?`. The `?` means nullable.");
+        "add a field to the table. Supported types are `float`, `string`, "
+        "`float?`, `string?`. The `?` means nullable.");
   }
 
   Result<bool> execute_leaf(LeafFunctionExecuteContext &ctx) override {
@@ -552,12 +639,12 @@ class LimitFunction : public helper::BaseLeafFunction {
   }
 };
 
-class OrderByFunction : public helper::BaseLeafFunction {
+class SortFunction : public helper::BaseLeafFunction {
  public:
-  OrderByFunction() : BaseFunction("order_by") {
-    set_signature({AnyType::from_string(), AnyType::from_string()});
+  SortFunction() : BaseFunction("sort") {
+    set_signature_variadic(AnyType::from_string());
 
-    add_description("order_by fields of table (field, asc|desc)");
+    add_description("sort fields of table asc (field1, field2, ...)");
   }
 
   Result<bool> execute_leaf(LeafFunctionExecuteContext &ctx) override {
@@ -568,14 +655,47 @@ class OrderByFunction : public helper::BaseLeafFunction {
     auto data = data_res.value();
     auto table = data->table;
 
-    auto field_name = ctx.args[0].as_string();
-    auto order = ctx.args[1].as_string();
-
-    if (order != "asc" && order != "desc") {
-      return Error("invalid order: {}", order);
+    if (ctx.args.size() == 0) {
+      return Error("sort fields can not be empty");
     }
 
-    auto new_table_res = table->sort({field_name}, order == "asc");
+    auto field_names = value_list_to_strings(ctx.args);
+
+    auto new_table_res = table->sort(field_names, true);
+
+    if (new_table_res.has_error()) {
+      return new_table_res.unwrap_err();
+    }
+
+    data->table = make_table_ptr(new_table_res.unwrap());
+
+    return true;
+  }
+};
+
+class SortDescFunction : public helper::BaseLeafFunction {
+ public:
+  SortDescFunction() : BaseFunction("sort_desc") {
+    set_signature_variadic(AnyType::from_string());
+
+    add_description("sort fields of table desc (field1, field2, ...)");
+  }
+
+  Result<bool> execute_leaf(LeafFunctionExecuteContext &ctx) override {
+    auto data_res = any_cast_ptr<datas::QueryData>(ctx.user_data);
+    if (!data_res.has_value()) {
+      return Error("invalid root func: {}", ctx.root_func->name());
+    }
+    auto data = data_res.value();
+    auto table = data->table;
+
+    if (ctx.args.size() == 0) {
+      return Error("sort fields can not be empty");
+    }
+
+    auto field_names = value_list_to_strings(ctx.args);
+
+    auto new_table_res = table->sort(field_names, false);
 
     if (new_table_res.has_error()) {
       return new_table_res.unwrap_err();
@@ -639,12 +759,56 @@ class WhereFunction : public helper::BaseLeafFunction {
   }
 };
 
+Result<TablePtr> handle_aggregation_function(
+    std::string agg_func_name, TablePtr src_table,
+    const std::vector<std::string> &field_names,
+    function<void(AnyValue &acc, AnyValue elem)> agg_op,
+    function<void(vector<AnyValue> &agg_results, TablePtr src_table,
+                  const vector<size_t> &field_indices)>
+        result_transformer = nullptr) {
+  auto field_indices_res = src_table->schema().get_field_indices(field_names);
+  if (field_indices_res.has_error()) {
+    return field_indices_res.unwrap_err();
+  }
+  auto field_indices = field_indices_res.unwrap();
+
+  vector<AnyValue> agg_results(field_indices.size());
+
+  for (auto row_idx = 0; row_idx < src_table->num_rows(); row_idx++) {
+    auto row = src_table->get_row(row_idx);
+    for (auto i = 0; i < field_indices.size(); i++) {
+      auto field_idx = field_indices[i];
+      auto field_value = row[field_idx];
+      agg_op(agg_results[i], field_value);
+    }
+  }
+
+  if (result_transformer != nullptr) {
+    result_transformer(agg_results, src_table, field_indices);
+  }
+
+  TableSchema out_schema;
+  for (size_t i = 0; i < field_names.size(); i++) {
+    auto name = fmt::format("{}({})", agg_func_name, field_names[i]);
+
+    out_schema.add_field(name, agg_results[i].type());
+  }
+
+  auto out_table = Table::create_ptr("", out_schema);
+  auto res1 = out_table->add_row(agg_results);
+  if (res1.has_error()) {
+    return res1.unwrap_err();
+  }
+
+  return out_table;
+}
+
 class AggMaxFunction : public helper::BaseLeafFunction {
  public:
   AggMaxFunction() : BaseFunction("max") {
-    set_signature({AnyType::from_string()});
+    set_signature_variadic({AnyType::from_string()});
 
-    add_description("aggregation max(field)");
+    add_description("aggregation max(field1, field2, ...)");
   }
 
   Result<bool> execute_leaf(LeafFunctionExecuteContext &ctx) override {
@@ -655,39 +819,24 @@ class AggMaxFunction : public helper::BaseLeafFunction {
     auto data = data_res.value();
     auto table = data->table;
 
-    auto field_name = ctx.args[0].as_string();
+    auto field_names = value_list_to_strings(ctx.args);
 
-    auto field_idx_res = table->schema().get_field_index(field_name);
+    auto out_res = handle_aggregation_function(
+        "max", table, field_names, [](AnyValue &acc, AnyValue elem) {
+          if (acc.is_null()) {
+            acc = elem;
+          } else {
+            if (acc < elem) {
+              acc = elem;
+            }
+          }
+        });
 
-    if (field_idx_res.has_error()) {
-      return field_idx_res.unwrap_err();
+    if (out_res.has_error()) {
+      return out_res.unwrap_err();
     }
 
-    auto field_idx = field_idx_res.unwrap();
-    auto field = table->schema().get_field(field_idx);
-
-    TableSchema schema;
-    schema.add_field(fmt::format("max({})", field_name), field.type);
-
-    AnyValue agg_result;
-
-    for (auto row_idx = 0; row_idx < table->num_rows(); row_idx++) {
-      auto row = table->get_row(row_idx);
-      auto field_value = row[field_idx];
-
-      if (agg_result.is_null()) {
-        agg_result = field_value;
-      } else {
-        if (agg_result < field_value) {
-          agg_result = field_value;
-        }
-      }
-    }
-
-    auto new_table = Table::create_ptr("", schema);
-    new_table->add_row({agg_result});
-
-    data->table = new_table;
+    data->table = out_res.unwrap();
 
     return true;
   }
@@ -696,9 +845,9 @@ class AggMaxFunction : public helper::BaseLeafFunction {
 class AggMinFunction : public helper::BaseLeafFunction {
  public:
   AggMinFunction() : BaseFunction("min") {
-    set_signature({AnyType::from_string()});
+    set_signature_variadic({AnyType::from_string()});
 
-    add_description("aggregation min(field)");
+    add_description("aggregation min(field1, field2, ...)");
   }
 
   Result<bool> execute_leaf(LeafFunctionExecuteContext &ctx) override {
@@ -710,39 +859,24 @@ class AggMinFunction : public helper::BaseLeafFunction {
     auto data = data_res.value();
     auto table = data->table;
 
-    auto field_name = ctx.args[0].as_string();
+    auto field_names = value_list_to_strings(ctx.args);
 
-    auto field_idx_res = table->schema().get_field_index(field_name);
+    auto out_res = handle_aggregation_function(
+        "min", table, field_names, [](AnyValue &acc, AnyValue elem) {
+          if (acc.is_null()) {
+            acc = elem;
+          } else {
+            if (!elem.is_null() && acc > elem) {
+              acc = elem;
+            }
+          }
+        });
 
-    if (field_idx_res.has_error()) {
-      return field_idx_res.unwrap_err();
+    if (out_res.has_error()) {
+      return out_res.unwrap_err();
     }
 
-    auto field_idx = field_idx_res.unwrap();
-    auto field = table->schema().get_field(field_idx);
-
-    TableSchema schema;
-    schema.add_field(fmt::format("min({})", field_name), field.type);
-
-    AnyValue agg_result;
-
-    for (auto row_idx = 0; row_idx < table->num_rows(); row_idx++) {
-      auto row = table->get_row(row_idx);
-      auto field_value = row[field_idx];
-
-      if (agg_result.is_null()) {
-        agg_result = field_value;
-      } else {
-        if (agg_result > field_value) {
-          agg_result = field_value;
-        }
-      }
-    }
-
-    auto new_table = Table::create_ptr("", schema);
-    new_table->add_row({agg_result});
-
-    data->table = new_table;
+    data->table = out_res.unwrap();
 
     return true;
   }
@@ -751,7 +885,7 @@ class AggMinFunction : public helper::BaseLeafFunction {
 class AggAvgFunction : public helper::BaseLeafFunction {
  public:
   AggAvgFunction() : BaseFunction("avg") {
-    set_signature({AnyType::from_string()});
+    set_signature_variadic({AnyType::from_string()});
 
     add_description("aggregation avg(field)");
   }
@@ -765,41 +899,46 @@ class AggAvgFunction : public helper::BaseLeafFunction {
     auto data = data_res.value();
     auto table = data->table;
 
-    auto field_name = ctx.args[0].as_string();
-
-    auto field_idx_res = table->schema().get_field_index(field_name);
-
-    if (field_idx_res.has_error()) {
-      return field_idx_res.unwrap_err();
+    auto field_names = value_list_to_strings(ctx.args);
+    auto field_indices = table->schema().get_field_indices(field_names);
+    if (field_indices.has_error()) {
+      return field_indices.unwrap_err();
     }
-
-    auto field_idx = field_idx_res.unwrap();
-    auto &field = table->schema().get_field(field_idx);
-
-    if (!field.type.is_null_float() && !field.type.is_float()) {
-      return Error("invalid field type: {}", field.type.name());
-    }
-
-    TableSchema schema;
-    schema.add_field(fmt::format("avg({})", field_name), field.type);
-
-    float agg_result = 0;
-
-    for (auto row_idx = 0; row_idx < table->num_rows(); row_idx++) {
-      auto row = table->get_row(row_idx);
-      auto field_value = row[field_idx];
-
-      if (!field_value.is_null()) {
-        agg_result += field_value.as_float();
+    for (auto field_idx : field_indices.unwrap()) {
+      auto &field = table->schema().get_field(field_idx);
+      if (!field.type.is_null_float() && !field.type.is_float()) {
+        return Error("invalid field type: {}, name: {}", field.type.name(),
+                     field.name);
       }
     }
 
-    agg_result /= table->num_rows();
+    auto out_res = handle_aggregation_function(
+        "avg", table, field_names,
+        [](AnyValue &acc, AnyValue elem) {
+          if (acc.is_null()) {
+            acc = elem;
+          } else {
+            acc = acc.as_float() + elem.as_float();
+          }
+        },
+        [](vector<AnyValue> &agg_results, TablePtr table,
+           const vector<size_t> &field_indices) {
+          for (auto i = 0; i < agg_results.size(); i++) {
+            float agg_result = 0;
+            if (!agg_results[i].is_null()) {
+              agg_result = agg_results[i].as_float();
+            }
+            agg_result = agg_result / table->num_rows();
 
-    auto new_table = Table::create_ptr("", schema);
-    new_table->add_row({agg_result});
+            agg_results[i] = AnyValue::from_float(agg_result);
+          }
+        });
 
-    data->table = new_table;
+    if (out_res.has_error()) {
+      return out_res.unwrap_err();
+    }
+
+    data->table = out_res.unwrap();
 
     return true;
   }
@@ -813,6 +952,9 @@ class FunctionFactory {
     register_function<ShowTablesFunction>();
     register_function<ShowFunctionsFunction>();
     register_function<ShowPluginsFunction>();
+    register_function<DescTableFunction>();
+    register_function<LoadPluginFunction>();
+    register_function<UnloadPluginFunction>();
     register_function<CreateTableRootFunction>();
     register_function<AddFieldFunction>();
     register_function<InsertRootFunction>();
@@ -822,7 +964,8 @@ class FunctionFactory {
     register_function<SelectFunction>();
     register_function<LimitFunction>();
     register_function<WhereFunction>();
-    register_function<OrderByFunction>();
+    register_function<SortFunction>();
+    register_function<SortDescFunction>();
     register_function<AggAvgFunction>();
     register_function<AggMaxFunction>();
     register_function<AggMinFunction>();

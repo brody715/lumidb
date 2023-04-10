@@ -5,6 +5,7 @@
 #include <istream>
 #include <memory>
 #include <string_view>
+#include <vector>
 
 #include "../../third-party/isocline/src/completions.h"
 #include "isocline.h"
@@ -15,6 +16,26 @@
 
 using namespace std;
 using namespace lumidb;
+
+class ConsoleLogger : public Logger {
+ public:
+  void log(Logger::LogLevel level, const std::string &msg) override {
+    switch (level) {
+      case LogLevel::ERROR:
+        ic_printf("[red]\\[error]: %s[/red]\n", msg.c_str());
+        break;
+      case LogLevel::WARNING:
+        ic_printf("[yellow]\\[warn]: %s[/yellow]\n", msg.c_str());
+        break;
+      case LogLevel::INFO:
+        ic_printf("[green]\\[info]: %s[/green]\n", msg.c_str());
+        break;
+      case LogLevel::DEBUG:
+        ic_printf("[blue]\\[debug]: %s[/blue]\n", msg.c_str());
+        break;
+    }
+  }
+};
 
 // Begin Autocomplete
 
@@ -32,7 +53,25 @@ static void word_completer(ic_completion_env_t *cenv, const char *word) {
     return;
   }
 
-  auto items = completer->complete(word);
+  completer->check_reload();
+
+  if (word[0] == '"' || word[0] == '\'') {
+    // try to complete table names
+    auto items = completer->complete(AutoCompleter::Table, (word + 1));
+
+    for (auto &item : items) {
+      // it's safe to allocate temporary string here, because ic will copy const
+      // char*
+      std::string completion = word[0] + item->completion + word[0];
+      std::string display = word[0] + item->display + word[0];
+      ic_add_completion_ex(cenv, completion.c_str(), display.c_str(),
+                           item->help.c_str());
+    }
+    return;
+  }
+
+  // try to complete from the list of functions
+  auto items = completer->complete(AutoCompleter::Function, word);
   for (auto &item : items) {
     ic_add_completion_ex(cenv, item->completion.c_str(), item->display.c_str(),
                          item->help.c_str());
@@ -41,7 +80,7 @@ static void word_completer(ic_completion_env_t *cenv, const char *word) {
 
 static void completer_func(ic_completion_env_t *cenv, const char *prefix) {
   // try to complete file names from the roots "." and "/usr/local"
-  ic_complete_filename(cenv, prefix, 0, ".", nullptr /* any extension */);
+  // ic_complete_filename(cenv, prefix, 0, ".", ".so" /* any extension */);
 
   ic_complete_word(cenv, prefix, &word_completer, nullptr);
 }
@@ -52,22 +91,62 @@ void AutoCompleter::init() {
   ic_set_default_completer(&details::completer_func, this);
   ic_enable_auto_tab(true);
 
+  reload_complete_items();
+}
+
+void AutoCompleter::check_reload() {
+  auto version = db_->version();
+  if (version != prev_version_) {
+    reload_complete_items();
+    prev_version_ = version;
+  }
+}
+
+void AutoCompleter::reload_complete_items() {
   auto funcs = db_->list_functions();
   if (!funcs.has_error()) {
-    prefix_complete_tree_.clear();
+    functions_.clear();
     for (auto &func : funcs.unwrap()) {
       auto item = AutoCompleteItem{};
       item.completion = func->name();
       item.display = helper::format_function(*func);
       item.help = func->description();
-      prefix_complete_tree_.insert(func->name(), item);
+      functions_.insert(func->name(), item);
+    }
+  }
+
+  auto tables = db_->list_tables();
+  if (!tables.has_error()) {
+    table_and_fields_.clear();
+    for (auto &table : tables.unwrap()) {
+      auto item = AutoCompleteItem{};
+      item.completion = table->name();
+      item.display = table->name();
+      item.help = "";
+      table_and_fields_.insert(table->name(), item);
+
+      auto fields = table->schema().field_names();
+      for (auto &field : fields) {
+        auto item = AutoCompleteItem{};
+        item.completion = field;
+        item.display = field;
+        item.help = "";
+        table_and_fields_.insert(field, item);
+      }
     }
   }
 }
 
 std::vector<const AutoCompleteItem *> AutoCompleter::complete(
-    std::string_view prefix) {
-  auto items = prefix_complete_tree_.find_prefix(prefix);
+    AutoCompleter::CompleteType type, std::string_view prefix) {
+  vector<const AutoCompleteItem *> items;
+  if (type & AutoCompleter::Table) {
+    table_and_fields_.find_prefix(prefix, items);
+  }
+
+  if (type & AutoCompleter::Function) {
+    functions_.find_prefix(prefix, items);
+  }
   return items;
 }
 
@@ -89,24 +168,15 @@ static bool my_readline(const std::string &prompt, std::string &line) {
   return true;
 }
 
+REPL::REPL(DatabasePtr db)
+    : db_(db), completer_(db_), logger_(make_shared<ConsoleLogger>()) {}
+
 Result<bool> REPL::init() {
   completer_.init();
   return true;
 }
 
 REPL::~REPL() {}
-
-void log_error(const std::string &msg) {
-  ic_printf("[red]Error: %s[/red]\n", msg.c_str());
-}
-
-void log_warning(const std::string &msg) {
-  ic_printf("[yellow]Warn: %s[/yellow]\n", msg.c_str());
-}
-
-void log_info(const std::string &msg) {
-  ic_printf("[green]Info: %s[/green]\n", msg.c_str());
-}
 
 void REPL::pre_run(std::istream &in) {
   std::string line;
@@ -116,7 +186,7 @@ void REPL::pre_run(std::istream &in) {
       continue;
     }
 
-    std::cout << "lumidb> " << line << std::endl;
+    logger_->log(logger_->INFO, fmt::format("executing: {}", line));
 
     if (!handle_input(line)) {
       break;
@@ -161,7 +231,7 @@ bool REPL::handle_input(std::string_view input) {
   auto query_res = parse_query(input);
 
   if (query_res.has_error()) {
-    log_error(query_res.unwrap_err().to_string());
+    logger_->log(logger_->ERROR, query_res.unwrap_err().to_string());
     return true;
   }
 
@@ -170,7 +240,7 @@ bool REPL::handle_input(std::string_view input) {
     auto table = result.unwrap();
     table->dump(std::cout) << std::endl;
   } else {
-    log_error(result.unwrap_err().to_string());
+    logger_->log(logger_->ERROR, result.unwrap_err().to_string());
   }
 
   return true;

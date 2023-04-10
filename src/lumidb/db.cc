@@ -1,9 +1,15 @@
 #include "lumidb/db.hh"
 
+#include <atomic>
+#include <cstdint>
 #include <iostream>
 #include <map>
+#include <memory>
+#include <mutex>
+#include <string>
 #include <vector>
 
+#include "fmt/core.h"
 #include "lumidb/function.hh"
 #include "lumidb/plugin.hh"
 #include "lumidb/table.hh"
@@ -13,6 +19,13 @@
 using namespace std;
 using namespace lumidb;
 
+class StdLogger : public Logger {
+ public:
+  virtual void log(Logger::LogLevel, const std::string &msg) override {
+    cout << msg << endl;
+  }
+};
+
 // Database in memory
 class MemoryDatabase : public lumidb::Database {
  public:
@@ -21,17 +34,24 @@ class MemoryDatabase : public lumidb::Database {
   // table related methods
   virtual Result<TablePtr> create_table(
       const CreateTableParams &params) override {
+    std::lock_guard lock(mutex_);
     auto [_, ok] = tables_.insert({params.table->name(), params.table});
     if (!ok) {
       return Error("table already exists: {}", params.table->name());
     }
+
+    ++version_;
     return params.table;
   }
   virtual Result<bool> drop_table(const std::string &name) override {
-    tables_.erase(name);
+    std::lock_guard lock(mutex_);
+    if (tables_.erase(name)) {
+      ++version_;
+    }
     return true;
   }
   virtual Result<TablePtr> get_table(const std::string &name) const override {
+    std::lock_guard lock(mutex_);
     auto it = tables_.find(name);
     if (it == tables_.end()) {
       return Error("table not found: {}", name);
@@ -39,6 +59,7 @@ class MemoryDatabase : public lumidb::Database {
     return it->second;
   }
   virtual Result<TablePtrList> list_tables() const override {
+    std::lock_guard lock(mutex_);
     TablePtrList tables;
     for (auto &it : tables_) {
       tables.push_back(it.second);
@@ -49,7 +70,8 @@ class MemoryDatabase : public lumidb::Database {
   // plugin related methods
   virtual Result<PluginPtr> load_plugin(
       const LoadPluginParams &params) override {
-    auto id = plugin_id_gen_.next_id();
+    // we should lock here since plugin may call db methods
+    auto id = std::to_string(plugin_id_gen_.next_id());
     auto plugin = Plugin::load_plugin(InternalLoadPluginParams{
         .db = this,
         .id = id,
@@ -59,16 +81,22 @@ class MemoryDatabase : public lumidb::Database {
       return plugin.unwrap_err();
     }
 
+    std::lock_guard lock(mutex_);
     plugins_[id] = plugin.unwrap();
 
+    ++version_;
     return plugin.unwrap();
   }
 
-  virtual Result<bool> unload_plugin(int id) override {
-    plugins_.erase(id);
+  virtual Result<bool> unload_plugin(string id) override {
+    std::lock_guard lock(mutex_);
+    if (plugins_.erase(id)) {
+      ++version_;
+    };
     return true;
   }
-  virtual Result<PluginPtr> get_plugin(int id) const override {
+  virtual Result<PluginPtr> get_plugin(string id) const override {
+    std::lock_guard lock(mutex_);
     auto it = plugins_.find(id);
     if (it == plugins_.end()) {
       return Error("plugin not found: {}", id);
@@ -76,6 +104,7 @@ class MemoryDatabase : public lumidb::Database {
     return it->second;
   }
   virtual Result<PluginPtrList> list_plugins() const override {
+    std::lock_guard lock(mutex_);
     PluginPtrList plugins;
     for (auto &it : plugins_) {
       plugins.push_back(it.second);
@@ -86,29 +115,52 @@ class MemoryDatabase : public lumidb::Database {
   // function related methods
   virtual Result<FunctionPtr> register_function(
       const RegisterFunctionParams &params) override {
-    return _register_function(params);
+    std::lock_guard lock(mutex_);
+    auto res = _register_function(params);
+
+    ++version_;
+    return res;
   }
 
   virtual Result<bool> register_function_list(
       const std::vector<RegisterFunctionParams> &params_list) override {
+    std::lock_guard lock(mutex_);
     for (auto &params : params_list) {
       auto func = _register_function(params);
       if (func.has_error()) {
         return func.unwrap_err();
       }
     }
+
+    ++version_;
     return true;
   }
 
   virtual Result<bool> unregister_function(const std::string &name) override {
+    std::lock_guard lock(mutex_);
     functions_.erase(name);
+
+    ++version_;
     return true;
   }
+
+  virtual Result<bool> unregister_function_list(
+      const std::vector<std::string> &name) override {
+    std::lock_guard lock(mutex_);
+    for (auto &name : name) {
+      functions_.erase(name);
+    }
+
+    ++version_;
+    return true;
+  };
   virtual Result<FunctionPtr> get_function(
       const std::string &name) const override {
+    std::lock_guard lock(mutex_);
     return _get_function(name);
   }
   virtual Result<FunctionPtrList> list_functions() const override {
+    std::lock_guard lock(mutex_);
     FunctionPtrList functions;
     for (auto &it : functions_) {
       functions.push_back(it.second);
@@ -125,28 +177,34 @@ class MemoryDatabase : public lumidb::Database {
     funcs.reserve(query.functions.size());
     args_list.reserve(query.functions.size());
 
-    for (auto &func : query.functions) {
-      auto func_ptr_res = _get_function(func.name);
-      if (func_ptr_res.has_error()) {
-        return func_ptr_res.unwrap_err().add_message("failed to resolve");
-      }
-      auto func_ptr = func_ptr_res.unwrap();
+    // lock here
+    {
+      std::lock_guard lock(mutex_);
+      for (auto &func : query.functions) {
+        auto func_ptr_res = this->_get_function(func.name);
+        if (func_ptr_res.has_error()) {
+          return func_ptr_res.unwrap_err().add_message("failed to resolve");
+        }
+        auto func_ptr = func_ptr_res.unwrap();
 
-      // check arguments
-      auto check_res = func_ptr->signature().check(func.arguments);
-      if (check_res.has_error()) {
-        return check_res.unwrap_err().add_message(
-            "function {} typecheck failed", func_ptr->name());
+        // check arguments
+        auto check_res = func_ptr->signature().check(func.arguments);
+        if (check_res.has_error()) {
+          return check_res.unwrap_err().add_message(
+              "function {} typecheck failed", func_ptr->name());
+        }
+
+        funcs.push_back(func_ptr);
+        args_list.push_back(func.arguments);
       }
 
-      funcs.push_back(func_ptr);
-      args_list.push_back(func.arguments);
+      // check we have at least one function
+      if (funcs.empty()) {
+        return Error("no function to execute");
+      }
     }
 
-    // check we have at least one function
-    if (funcs.empty()) {
-      return Error("no function to execute");
-    }
+    // unlock here
 
     FunctionPtr root_func = funcs[0];
 
@@ -187,7 +245,7 @@ class MemoryDatabase : public lumidb::Database {
 
     auto res = root_func->execute_root(root_exec_ctx);
     if (res.has_error()) {
-      return res.unwrap_err().add_message("failed to execute root function: {}",
+      return res.unwrap_err().add_message("failed to execute: {}",
                                           root_func->name());
     }
 
@@ -203,8 +261,8 @@ class MemoryDatabase : public lumidb::Database {
 
       res = func->execute_leaf(leaf_exec_ctx);
       if (res.has_error()) {
-        return res.unwrap_err().add_message(
-            "failed to execute leaf function: {}", func->name());
+        return res.unwrap_err().add_message("failed to execute: {}",
+                                            func->name());
       }
     }
 
@@ -212,8 +270,8 @@ class MemoryDatabase : public lumidb::Database {
     root_final_ctx.user_data = leaf_exec_ctx.user_data;
     res = root_func->finalize_root(root_final_ctx);
     if (res.has_error()) {
-      return res.unwrap_err().add_message(
-          "failed to finalize root function: {}", root_func->name());
+      return res.unwrap_err().add_message("failed to finalize: {}",
+                                          root_func->name());
     }
 
     if (root_final_ctx.result.has_value()) {
@@ -226,10 +284,18 @@ class MemoryDatabase : public lumidb::Database {
 
   // helper function
   virtual void report_error(const ReportErrorParams &params) override {
-    // TODO: use error report register
-    std::cerr << params.source << ": " << params.name << ": "
-              << params.error.message;
+    logger_->log(Logger::ERROR, fmt::format("{}: {}: {}", params.source,
+                                            params.name, params.error.message));
   }
+
+  virtual void logging(Logger::LogLevel level,
+                       const std::string &msg) override {
+    logger_->log(level, msg);
+  }
+
+  virtual void set_logger(LoggerPtr logger) override { logger_ = logger; }
+
+  virtual int64_t version() const override { return version_; }
 
  private:
   Result<FunctionPtr> _get_function(const std::string &name) const {
@@ -241,16 +307,22 @@ class MemoryDatabase : public lumidb::Database {
   }
 
   Result<FunctionPtr> _register_function(const RegisterFunctionParams &params) {
-    functions_[params.func->name()] = params.func;
-    return params.func;
+    auto [it, inserted] = functions_.insert({params.func->name(), params.func});
+    if (!inserted) {
+      return Error("function already exists: {}", params.func->name());
+    }
+    return it->second;
   }
 
  private:
+  mutable std::mutex mutex_;
   map<string, TablePtr> tables_;
   map<string, FunctionPtr> functions_;
-  map<int, PluginPtr> plugins_;
-
+  map<string, PluginPtr> plugins_;
   IdGenerator plugin_id_gen_;
+
+  std::atomic_int64_t version_ = 0;
+  LoggerPtr logger_ = std::make_shared<StdLogger>();
 };
 
 Result<DatabasePtr> lumidb::create_database(

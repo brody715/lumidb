@@ -12,6 +12,11 @@ do-cmake:
 build: do-cmake
 	cd build && make -j
 
+build-debug:
+	mkdir -p build
+	cd build && cmake .. -DCMAKE_BUILD_TYPE=Debug
+	cd build && make -j
+
 build-run: build run
 
 build-test:

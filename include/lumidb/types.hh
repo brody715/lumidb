@@ -24,10 +24,23 @@
 
 namespace lumidb {
 
+class Logger {
+ public:
+  enum LogLevel {
+    ERROR = 0,
+    WARNING,
+    INFO,
+    DEBUG,
+  };
+  virtual void log(LogLevel level, const std::string &message) = 0;
+};
+
+using LoggerPtr = std::shared_ptr<Logger>;
+
 int compare_float(float a, float b, float epsilon = 0.0001);
 std::string float2string(float v);
 
-using plugin_id_t = int;
+using plugin_id_t = std::string;
 
 // TypeKind
 enum class TypeKind {
@@ -154,6 +167,8 @@ class AnyType {
     }
   }
 
+  static AnyType from_null_string() { return AnyType(TypeKind::T_NULL_STRING); }
+  static AnyType from_null_float() { return AnyType(TypeKind::T_NULL_FLOAT); }
   static AnyType from_string() { return AnyType(TypeKind::T_STRING); }
   static AnyType from_float() { return AnyType(TypeKind::T_FLOAT); }
   static AnyType from_null() { return AnyType(TypeKind::T_NULL); }
@@ -251,6 +266,9 @@ class AnyValue {
   static AnyValue from_string(std::string str) {
     return AnyValue(ValueTypeKind::T_STRING, str);
   }
+  static AnyValue from_string(const char *str) {
+    return AnyValue(ValueTypeKind::T_STRING, std::string(str));
+  }
 
   static AnyValue from_float(float value) {
     return AnyValue(ValueTypeKind::T_FLOAT, value);
@@ -336,6 +354,9 @@ struct QueryFunction {
 std::ostream &operator<<(std::ostream &os, const QueryFunction &obj);
 
 struct Query {
+  Query() = default;
+  Query(std::vector<QueryFunction> functions) : functions(functions) {}
+
   std::vector<QueryFunction> functions;
 
   bool operator==(const Query &other) const {

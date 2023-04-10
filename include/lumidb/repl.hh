@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <deque>
 #include <istream>
 #include <map>
@@ -42,18 +43,20 @@ class TrieTree {
     }
   }
 
-  std::vector<const Val *> find_prefix(std::string_view prefix) const {
+  void find_prefix(std::string_view prefix,
+                   std::vector<const Val *> &result) const {
     Node *cur = root_.get();
     for (auto c : prefix) {
       auto it = cur->children.find(c);
       if (it == cur->children.cend()) {
-        return {};
+        return;
       }
       cur = it->second.get();
     }
 
-    auto vals = cur->subtree_vals;
-    return {vals.cbegin(), vals.cend()};
+    for (auto val : cur->subtree_vals) {
+      result.push_back(val);
+    }
   }
 
  private:
@@ -75,21 +78,32 @@ struct AutoCompleteItem {
 
 class AutoCompleter {
  public:
+  enum CompleteType : int { Function = 01, Table = 10 };
+
   AutoCompleter(DatabasePtr db_) : db_(db_) {}
   ~AutoCompleter();
 
   void init();
-  std::vector<const AutoCompleteItem *> complete(std::string_view prefix);
+  std::vector<const AutoCompleteItem *> complete(CompleteType type,
+                                                 std::string_view prefix);
+
+  // check reload: check whether we should reload the complete items to sync
+  // with current db states
+  void check_reload();
 
  private:
-  DatabasePtr db_;
+  void reload_complete_items();
 
-  TrieTree<AutoCompleteItem> prefix_complete_tree_{};
+ private:
+  int64_t prev_version_ = 0;
+  DatabasePtr db_;
+  TrieTree<AutoCompleteItem> functions_{};
+  TrieTree<AutoCompleteItem> table_and_fields_{};
 };
 
 class REPL {
  public:
-  REPL(DatabasePtr db) : db_(db), completer_(db_) {}
+  REPL(DatabasePtr db);
   ~REPL();
 
   Result<bool> init();
@@ -106,5 +120,6 @@ class REPL {
  private:
   DatabasePtr db_;
   AutoCompleter completer_;
+  LoggerPtr logger_;
 };
 }  // namespace lumidb

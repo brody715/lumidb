@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <istream>
 #include <optional>
 #include <string>
@@ -21,7 +22,7 @@ class IdGenerator {
   int next_id() { return next_id_++; }
 
  private:
-  int next_id_ = 1;
+  std::atomic_int next_id_ = 1;
 };
 
 // We guarantee that every row has the same number of columns, and equal to

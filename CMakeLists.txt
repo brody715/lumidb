@@ -10,12 +10,6 @@ option(lumidb_test "enable test" on)
 set(CMAKE_CXX_FLAGS_DEBUG "-g3 -O0")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 
-# lumidb main lib
-add_subdirectory(src/lumidb)
-
-# plugins
-add_subdirectory(src/plugins)
-
 # third-party options
 set(ARGUMENTUM_BUILD_STATIC_LIBS on)
 
@@ -25,17 +19,25 @@ add_subdirectory(third-party/backward-cpp)
 add_subdirectory(third-party/fmt)
 add_subdirectory(third-party/tabulate)
 
+
 ## special handling for isocline
 add_library(isocline STATIC third-party/isocline/src/isocline.c)
 
 # add include files
-set(lumidb_INCLUDE_DIRS include
-  third-party/argumentum/include
-  third-party/fmt/include
-  third-party/tabulate/include
-  third-party/acutest/include
-  third-party/isocline/include
+set(lumidb_INCLUDE_DIRS
+  ${CMAKE_SOURCE_DIR}/include
+  ${CMAKE_SOURCE_DIR}/third-party/argumentum/include
+  ${CMAKE_SOURCE_DIR}/third-party/fmt/include
+  ${CMAKE_SOURCE_DIR}/third-party/tabulate/include
+  ${CMAKE_SOURCE_DIR}/third-party/acutest/include
+  ${CMAKE_SOURCE_DIR}/third-party/isocline/include
 )
+
+# lumidb main lib
+add_subdirectory(src/lumidb)
+
+# plugins
+add_subdirectory(src/plugins)
 
 add_executable(lumidb main.cc ${BACKWARD_ENABLE})
 target_link_libraries(lumidb lumidb-lib fmt::fmt Argumentum::argumentum isocline)
