@@ -112,3 +112,7 @@ std::ostream &Table::dump(std::ostream &out) const {
   auto data = RenderTableData::from_table(*this);
   return data.dump(out);
 }
+
+std::ostream &lumidb::operator<<(std::ostream &out, const Table &table) {
+  return table.dump(out);
+}

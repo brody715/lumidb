@@ -5,11 +5,13 @@
 #include <cctype>
 #include <cstddef>
 #include <exception>
+#include <iostream>
 #include <optional>
 #include <ostream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -34,7 +36,7 @@ QueryTokenList filter_query_token_list(const QueryTokenList src_datas,
   return result;
 }
 
-std::ostream &operator<<(std::ostream &os, const QueryTokenKind &kind) {
+std::ostream &lumidb::operator<<(std::ostream &os, const QueryTokenKind &kind) {
   switch (kind) {
     case QueryTokenKind::Identifier:
       os << "Identifier";
@@ -69,7 +71,7 @@ std::ostream &operator<<(std::ostream &os, const QueryTokenKind &kind) {
   return os;
 }
 
-std::ostream &operator<<(std::ostream &os, const QueryToken &obj) {
+std::ostream &lumidb::operator<<(std::ostream &os, const QueryToken &obj) {
   if (obj.value.is_null()) {
     os << fmt::format("{{loc={}, kind={}}}", obj.loc, obj.kind);
   } else {
@@ -90,8 +92,9 @@ class QueryLexer {
         return QueryToken{loc, QueryTokenKind::EOS};
       }
 
-      while (isspace(content_[0])) {
+      if (isspace(content_[0])) {
         step_location(1);
+        continue;
       }
 
       if (content_[0] == '(') {
@@ -117,7 +120,7 @@ class QueryLexer {
       if (content_[0] == '"' || content_[0] == '\'') {
         auto quote = content_[0];
         auto [value, size] = parse_string_literal(content_, quote);
-        if (size == string_view::npos) {
+        if (size == string::npos) {
           auto loc = step_location(content_.length());
           return QueryToken{loc, QueryTokenKind::ErrorToken, value};
         }
@@ -137,9 +140,11 @@ class QueryLexer {
 
       // unknown char
       if (content_[0] != ' ') {
-        auto ch = std::string(content_[0], 1);
+        // Some UTF characters are 2-4 bytes long, so we need to take care of,
+        // we shouldn't just take the first byte.
+        // auto ch = std::string(content_[0], 1);
         auto loc = step_location(1);
-        return QueryToken{loc, QueryTokenKind::ErrorToken, ch};
+        return QueryToken{loc, QueryTokenKind::ErrorToken};
       }
     }
   }
@@ -271,18 +276,18 @@ class QueryParser {
   QueryParser(QueryTokenList tokens) : tokens_(tokens) {}
 
   Result<Query> parse() {
-    if (tokens_.empty()) {
-      throw ParseException(SourceLocation{}, "empty query");
-    }
-
-    // check error token first
-    for (auto &token : tokens_) {
-      if (token.kind == QueryTokenKind::ErrorToken) {
-        throw ParseException(token.loc, "invalid token");
-      }
-    }
-
     try {
+      if (tokens_.empty()) {
+        throw ParseException(SourceLocation{}, "empty query");
+      }
+
+      // check error token first
+      for (auto &token : tokens_) {
+        if (token.kind == QueryTokenKind::ErrorToken) {
+          throw ParseException(token.loc, "invalid token");
+        }
+      }
+
       return parse_query();
     } catch (const ParseException &e) {
       return e.to_error();
@@ -315,13 +320,14 @@ class QueryParser {
   QueryFunction parse_query_function() {
     auto token = expect(QueryTokenKind::Identifier);
     auto func_name = token.value.as_string();
-    token = expect(
-        {QueryTokenKind::L_Paren, QueryTokenKind::EOS, QueryTokenKind::Pipe});
 
-    if (token.kind == QueryTokenKind::EOS ||
-        token.kind == QueryTokenKind::Pipe) {
+    token = peek();
+
+    if (token.kind != QueryTokenKind::L_Paren) {
       return QueryFunction{func_name, {}};
     }
+
+    expect(QueryTokenKind::L_Paren);
 
     // if current is rparen, return
     if (peek().kind == QueryTokenKind::R_Paren) {
@@ -413,15 +419,22 @@ QueryTokenList lumidb::tokenize_query(std::string_view query) {
   QueryTokenList tokens;
   QueryLexer lexer(query);
 
-  while (true) {
-    auto token = lexer.next_token();
-    if (token.kind == QueryTokenKind::EOS) {
-      break;
+  try {
+    while (true) {
+      auto token = lexer.next_token();
+      if (token.kind == QueryTokenKind::EOS) {
+        break;
+      }
+      tokens.push_back(token);
     }
-    tokens.push_back(token);
-  }
 
-  return tokens;
+    return tokens;
+  } catch (std::exception &e) {
+    std::cerr << fmt::format("error when tokenize query: {}, err: {}", query,
+                             e.what())
+              << std::endl;
+    return {};
+  }
 }
 
 Result<Query> lumidb::parse_query(std::string_view query) {

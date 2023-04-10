@@ -125,10 +125,29 @@ using namespace lumidb;
 class TimerPlugin {
  public:
   TimerPlugin(lumidb::Database *db) : db(db) {}
-  ~TimerPlugin() {}
+  ~TimerPlugin() {
+    if (db == nullptr) {
+      return;
+    }
+
+    auto res = db->unregister_function_list({
+        "find_missing_values",
+    });
+
+    if (res.has_error()) {
+      db->report_error({
+          .source = "plugin",
+          .name = "timer-plugin",
+          .error = res.unwrap_err(),
+      });
+    }
+
+    db = nullptr;
+  }
 
   int on_load() {
-    auto res = db->register_function_list({});
+    auto res = db->register_function_list(
+        {{make_function_ptr<FindMissingValuesFunction>()}});
 
     if (res.has_error()) {
       db->report_error({
@@ -170,12 +189,14 @@ LumiDBPluginDef LUMI_DB_ATTRIBUTE_WEAK lumi_db_get_plugin_def() {
         return ret;
       },
       [](LumiDBPluginContext *ctx) {
+        int rc = 0;
         if (ctx->user_data != nullptr) {
-          delete reinterpret_cast<TimerPlugin *>(ctx->user_data);
+          TimerPlugin *plugin = reinterpret_cast<TimerPlugin *>(ctx->user_data);
+          delete plugin;
           ctx->user_data = nullptr;
         }
 
-        return 0;
+        return rc;
       }};
   return def;
 }

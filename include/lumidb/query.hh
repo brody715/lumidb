@@ -49,6 +49,10 @@ struct QueryToken {
   }
 };
 
+std::ostream &operator<<(std::ostream &os, const lumidb::QueryToken &obj);
+
+std::ostream &operator<<(std::ostream &os, const lumidb::QueryTokenKind &obj);
+
 using QueryTokenList = std::vector<QueryToken>;
 
 struct QueryFunction {
@@ -98,10 +102,6 @@ QueryTokenList tokenize_query(std::string_view query);
 Result<Query> parse_query(std::string_view query);
 
 }  // namespace lumidb
-
-std::ostream &operator<<(std::ostream &os, const lumidb::QueryToken &obj);
-
-std::ostream &operator<<(std::ostream &os, const lumidb::QueryTokenKind &obj);
 
 template <>
 struct fmt::formatter<lumidb::SourceLocation> : fmt::ostream_formatter {};

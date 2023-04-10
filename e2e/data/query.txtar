@@ -12,7 +12,7 @@ create_table("test1") | add_field("name", "string") | add_field("age", "float") 
 
 -- show_tables.in --
 
-show_tables
+show_tables | limit(1) | sort("name")
 
 -- show_tables.golden --
 

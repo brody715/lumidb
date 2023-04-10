@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "db.hh"
+#include "fmt/ostream.h"
 #include "lumidb/types.hh"
 
 namespace lumidb {
@@ -288,4 +289,9 @@ class Table {
 
   std::vector<ValueList> rows_{};
 };
+
+std::ostream &operator<<(std::ostream &out, const Table &table);
 }  // namespace lumidb
+
+template <>
+struct fmt::formatter<lumidb::Table> : fmt::ostream_formatter {};

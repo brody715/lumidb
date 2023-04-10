@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <future>
 #include <iostream>
 #include <map>
 #include <memory>
@@ -10,6 +11,7 @@
 #include <vector>
 
 #include "fmt/core.h"
+#include "lumidb/executor.hh"
 #include "lumidb/function.hh"
 #include "lumidb/plugin.hh"
 #include "lumidb/table.hh"
@@ -168,8 +170,23 @@ class MemoryDatabase : public lumidb::Database {
     return functions;
   }
 
+  virtual std::future<Result<TablePtr>> execute(const Query &query) override {
+    // std::function needs copyable, but promise is only moveable, so we need to
+    // wrap it in a shared_ptr
+    // It may have performance issue, but it's ok for now
+    auto promise = std::make_shared<std::promise<Result<TablePtr>>>();
+    auto future = promise->get_future();
+
+    executor_.add_task([this, query, promise = std::move(promise)]() mutable {
+      auto res = _execute(query);
+      promise->set_value(res);
+    });
+
+    return future;
+  }
+
   // execute query, return result as a table
-  virtual Result<TablePtr> execute(const Query &query) override {
+  Result<TablePtr> _execute(const Query &query) {
     // resolve function and its arguments
     std::vector<FunctionPtr> funcs;
     std::vector<ValueList> args_list;
@@ -320,8 +337,9 @@ class MemoryDatabase : public lumidb::Database {
   map<string, FunctionPtr> functions_;
   map<string, PluginPtr> plugins_;
   IdGenerator plugin_id_gen_;
-
   std::atomic_int64_t version_ = 0;
+
+  ThreadExecutor executor_;
 
   // !! data race here, we can't use std::atomic_shared_ptr until c++20
   LoggerPtr logger_ = std::make_shared<StdLogger>();

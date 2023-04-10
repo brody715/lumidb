@@ -23,6 +23,9 @@ class ConsoleLogger : public Logger {
  public:
   void log(Logger::LogLevel level, const std::string &msg) override {
     switch (level) {
+      case LogLevel::NORMAL:
+        std::cout << msg << std::endl;
+        break;
       case LogLevel::ERROR:
         ic_printf("[red]\\[error]: %s[/red]\n", msg.c_str());
         break;
@@ -295,7 +298,7 @@ bool REPL::handle_input(std::string_view input) {
     return true;
   }
 
-  auto result = db_->execute(query_res.unwrap());
+  auto result = db_->execute(query_res.unwrap()).get();
   if (result.is_ok()) {
     auto table = result.unwrap();
     table->dump(std::cout) << std::endl;

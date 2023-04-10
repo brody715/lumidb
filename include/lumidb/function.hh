@@ -145,6 +145,63 @@ class Function {
 
 std::vector<FunctionPtr> get_builtin_functions();
 
+namespace datas {
+class Filters {
+ public:
+  void add_and_filter(Table::RowPredictor filter) {
+    and_filters.emplace_back(std::move(filter));
+  }
+
+  bool perdict(const ValueList& row, size_t row_idx) const {
+    for (auto& filter : and_filters) {
+      if (!filter(row, row_idx)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+ private:
+  std::vector<Table::RowPredictor> and_filters;
+};
+
+struct FieldNameUpdateItem {
+  std::string field_name;
+  AnyValue value;
+};
+
+struct FieldIndexUpdateItem {
+  size_t field_index;
+  AnyValue value;
+};
+
+struct CreateTableRootData {
+  std::string name;
+  TableSchema schema;
+};
+
+struct InsertRootData {
+  TablePtr table;
+  std::vector<ValueList> rows;
+};
+
+struct UpdateRootData {
+  TablePtr table;
+  Filters filters;
+  std::vector<FieldNameUpdateItem> update_items;
+};
+
+struct DeleteRootData {
+  TablePtr table;
+  Filters filters;
+};
+
+struct QueryRootData {
+  TablePtr table;
+};
+
+}  // namespace datas
+
 namespace helper {
 
 std::string format_function(const Function& func);
@@ -210,6 +267,38 @@ class BaseLeafFunction : virtual public BaseFunction {
   bool can_leaf() const override { return true; }
   Result<bool> execute_leaf(LeafFunctionExecuteContext& ctx) override = 0;
 };
+
+template <typename T>
+using Ptr = std::shared_ptr<T>;
+
+template <typename T>
+std::optional<Ptr<T>> any_cast_ptr(std::any value) {
+  if (value.type() == typeid(Ptr<T>)) {
+    return std::any_cast<Ptr<T>>(value);
+  }
+  return {};
+}
+
+// Can used in plugins
+static Result<bool> execute_query_root(RootFunctionExecuteContext& ctx,
+                                       TablePtr table) {
+  auto data = std::make_shared<datas::QueryRootData>();
+  data->table = table;
+
+  ctx.user_data = data;
+  return true;
+}
+
+static Result<bool> finalize_query_root(RootFunctionFinalizeContext& ctx) {
+  auto data_res = any_cast_ptr<datas::QueryRootData>(ctx.user_data);
+  if (!data_res.has_value()) {
+    return Error("invalid user data");
+  }
+  auto data = data_res.value();
+
+  ctx.result = data->table;
+  return true;
+}
 }  // namespace helper
 
 }  // namespace lumidb

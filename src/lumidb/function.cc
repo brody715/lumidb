@@ -54,73 +54,7 @@ std::string lumidb::helper::format_function(const Function &func) {
   return fmt::format("{}{}", func.name(), func.signature());
 }
 
-template <typename T>
-using Ptr = std::shared_ptr<T>;
-
-template <typename T>
-optional<Ptr<T>> any_cast_ptr(std::any value) {
-  if (value.type() == typeid(Ptr<T>)) {
-    return std::any_cast<Ptr<T>>(value);
-  }
-  return {};
-}
-
-namespace datas {
-class Filters {
- public:
-  void add_and_filter(Table::RowPredictor filter) {
-    and_filters.emplace_back(std::move(filter));
-  }
-
-  bool perdict(const ValueList &row, size_t row_idx) const {
-    for (auto &filter : and_filters) {
-      if (!filter(row, row_idx)) {
-        return false;
-      }
-    }
-    return true;
-  }
-
- private:
-  std::vector<Table::RowPredictor> and_filters;
-};
-
-struct FieldNameUpdateItem {
-  std::string field_name;
-  AnyValue value;
-};
-
-struct FieldIndexUpdateItem {
-  size_t field_index;
-  AnyValue value;
-};
-
-struct CreateTableData {
-  std::string name;
-  TableSchema schema;
-};
-
-struct InsertData {
-  TablePtr table;
-  std::vector<ValueList> rows;
-};
-
-struct UpdateData {
-  TablePtr table;
-  Filters filters;
-  vector<FieldNameUpdateItem> update_items;
-};
-
-struct DeleteData {
-  TablePtr table;
-  Filters filters;
-};
-
-struct QueryData {
-  TablePtr table;
-};
-
-}  // namespace datas
+using helper::any_cast_ptr;
 
 // functions
 
@@ -177,10 +111,6 @@ class ShowTablesFunction : public helper::BaseRootFunction {
   }
 
   Result<bool> execute_root(RootFunctionExecuteContext &ctx) override {
-    return true;
-  }
-
-  Result<bool> finalize_root(RootFunctionFinalizeContext &ctx) override {
     auto tables = ctx.db->list_tables();
     if (tables.has_error()) {
       return tables.unwrap_err();
@@ -195,8 +125,11 @@ class ShowTablesFunction : public helper::BaseRootFunction {
       table->add_row({t->name()});
     }
 
-    ctx.result = table;
-    return true;
+    return helper::execute_query_root(ctx, table);
+  }
+
+  Result<bool> finalize_root(RootFunctionFinalizeContext &ctx) override {
+    return helper::finalize_query_root(ctx);
   }
 };
 
@@ -208,10 +141,6 @@ class ShowFunctionsFunction : public helper::BaseRootFunction {
   }
 
   Result<bool> execute_root(RootFunctionExecuteContext &ctx) override {
-    return true;
-  }
-
-  Result<bool> finalize_root(RootFunctionFinalizeContext &ctx) override {
     auto functions = ctx.db->list_functions();
     if (functions.has_error()) {
       return functions.unwrap_err();
@@ -231,8 +160,11 @@ class ShowFunctionsFunction : public helper::BaseRootFunction {
       table->add_row({signature, type, f->description()});
     }
 
-    ctx.result = table;
-    return true;
+    return helper::execute_query_root(ctx, table);
+  }
+
+  Result<bool> finalize_root(RootFunctionFinalizeContext &ctx) override {
+    return helper::finalize_query_root(ctx);
   }
 };
 
@@ -244,10 +176,6 @@ class ShowPluginsFunction : public helper::BaseRootFunction {
   }
 
   Result<bool> execute_root(RootFunctionExecuteContext &ctx) override {
-    return true;
-  }
-
-  Result<bool> finalize_root(RootFunctionFinalizeContext &ctx) override {
     auto plugins = ctx.db->list_plugins();
     if (plugins.has_error()) {
       return plugins.unwrap_err();
@@ -270,8 +198,11 @@ class ShowPluginsFunction : public helper::BaseRootFunction {
       }
     }
 
-    ctx.result = table;
-    return true;
+    return helper::execute_query_root(ctx, table);
+  }
+
+  Result<bool> finalize_root(RootFunctionFinalizeContext &ctx) override {
+    return helper::finalize_query_root(ctx);
   }
 };
 
@@ -338,7 +269,7 @@ class UnloadPluginFunction : public helper::BaseRootFunction {
     }
 
     // execute show_plugins
-    auto show_res = ctx.db->execute({{{"show_plugins"}}});
+    auto show_res = ctx.db->execute({{{"show_plugins"}}}).get();
 
     if (show_res.has_error()) {
       return show_res.unwrap_err();
@@ -374,7 +305,7 @@ class CreateTableRootFunction : public helper::BaseRootFunction {
       return Error("create_table requires string argument");
     }
 
-    auto data = std::make_shared<datas::CreateTableData>();
+    auto data = std::make_shared<datas::CreateTableRootData>();
     data->name = arg.as_string();
 
     ctx.user_data = data;
@@ -385,7 +316,7 @@ class CreateTableRootFunction : public helper::BaseRootFunction {
   Result<bool> finalize_root(RootFunctionFinalizeContext &ctx) override {
     // auto data = std::any_cast()
 
-    auto data_res = any_cast_ptr<datas::CreateTableData>(ctx.user_data);
+    auto data_res = any_cast_ptr<datas::CreateTableRootData>(ctx.user_data);
     if (!data_res.has_value()) {
       return Error("invalid user data");
     }
@@ -403,7 +334,7 @@ class CreateTableRootFunction : public helper::BaseRootFunction {
       return res.unwrap_err();
     }
 
-    auto out_res = ctx.db->execute({{{"desc_table", {data->name}}}});
+    auto out_res = ctx.db->execute({{{"desc_table", {data->name}}}}).get();
     if (out_res.has_error()) {
       return out_res.unwrap_err();
     }
@@ -425,7 +356,7 @@ class AddFieldFunction : public helper::BaseLeafFunction {
   }
 
   Result<bool> execute_leaf(LeafFunctionExecuteContext &ctx) override {
-    auto data_res = any_cast_ptr<datas::CreateTableData>(ctx.user_data);
+    auto data_res = any_cast_ptr<datas::CreateTableRootData>(ctx.user_data);
     if (!data_res.has_value()) {
       return Error("invalid root func: {}", ctx.root_func->name());
     }
@@ -460,7 +391,7 @@ class InsertRootFunction : public helper::BaseRootFunction {
   Result<bool> execute_root(RootFunctionExecuteContext &ctx) override {
     auto table_name = ctx.args[0].as_string();
 
-    auto data = std::make_shared<datas::InsertData>();
+    auto data = std::make_shared<datas::InsertRootData>();
 
     auto table_res = ctx.db->get_table(table_name);
     if (table_res.has_error()) {
@@ -476,7 +407,7 @@ class InsertRootFunction : public helper::BaseRootFunction {
   Result<bool> finalize_root(RootFunctionFinalizeContext &ctx) override {
     // auto data = std::any_cast()
 
-    auto data_res = any_cast_ptr<datas::InsertData>(ctx.user_data);
+    auto data_res = any_cast_ptr<datas::InsertRootData>(ctx.user_data);
     if (!data_res.has_value()) {
       return Error("invalid user data");
     }
@@ -503,7 +434,7 @@ class AddRowFunction : public helper::BaseLeafFunction {
   }
 
   Result<bool> execute_leaf(LeafFunctionExecuteContext &ctx) override {
-    auto data_res = any_cast_ptr<datas::InsertData>(ctx.user_data);
+    auto data_res = any_cast_ptr<datas::InsertRootData>(ctx.user_data);
     if (!data_res.has_value()) {
       return Error("invalid root func: {}", ctx.root_func->name());
     }
@@ -531,7 +462,7 @@ class LoadCSVFunction : public helper::BaseLeafFunction {
   }
 
   Result<bool> execute_leaf(LeafFunctionExecuteContext &ctx) override {
-    auto data_res = any_cast_ptr<datas::InsertData>(ctx.user_data);
+    auto data_res = any_cast_ptr<datas::InsertRootData>(ctx.user_data);
     if (!data_res.has_value()) {
       return Error("invalid root func: {}", ctx.root_func->name());
     }
@@ -606,7 +537,7 @@ class QueryRootFunction : public helper::BaseRootFunction {
   Result<bool> execute_root(RootFunctionExecuteContext &ctx) override {
     auto table_name = ctx.args[0].as_string();
 
-    auto data = std::make_shared<datas::QueryData>();
+    auto data = std::make_shared<datas::QueryRootData>();
 
     auto table_res = ctx.db->get_table(table_name);
     if (table_res.has_error()) {
@@ -620,7 +551,7 @@ class QueryRootFunction : public helper::BaseRootFunction {
   }
 
   Result<bool> finalize_root(RootFunctionFinalizeContext &ctx) override {
-    auto data_res = any_cast_ptr<datas::QueryData>(ctx.user_data);
+    auto data_res = any_cast_ptr<datas::QueryRootData>(ctx.user_data);
     if (!data_res.has_value()) {
       return Error("invalid user data");
     }
@@ -640,7 +571,7 @@ class SelectFunction : public helper::BaseLeafFunction {
   }
 
   Result<bool> execute_leaf(LeafFunctionExecuteContext &ctx) override {
-    auto data_res = any_cast_ptr<datas::QueryData>(ctx.user_data);
+    auto data_res = any_cast_ptr<datas::QueryRootData>(ctx.user_data);
     if (!data_res.has_value()) {
       return Error("invalid root func: {}", ctx.root_func->name());
     }
@@ -669,7 +600,7 @@ class LimitFunction : public helper::BaseLeafFunction {
   }
 
   Result<bool> execute_leaf(LeafFunctionExecuteContext &ctx) override {
-    auto data_res = any_cast_ptr<datas::QueryData>(ctx.user_data);
+    auto data_res = any_cast_ptr<datas::QueryRootData>(ctx.user_data);
     if (!data_res.has_value()) {
       return Error("invalid root func: {}", ctx.root_func->name());
     }
@@ -698,7 +629,7 @@ class SortFunction : public helper::BaseLeafFunction {
   }
 
   Result<bool> execute_leaf(LeafFunctionExecuteContext &ctx) override {
-    auto data_res = any_cast_ptr<datas::QueryData>(ctx.user_data);
+    auto data_res = any_cast_ptr<datas::QueryRootData>(ctx.user_data);
     if (!data_res.has_value()) {
       return Error("invalid root func: {}", ctx.root_func->name());
     }
@@ -732,7 +663,7 @@ class SortDescFunction : public helper::BaseLeafFunction {
   }
 
   Result<bool> execute_leaf(LeafFunctionExecuteContext &ctx) override {
-    auto data_res = any_cast_ptr<datas::QueryData>(ctx.user_data);
+    auto data_res = any_cast_ptr<datas::QueryRootData>(ctx.user_data);
     if (!data_res.has_value()) {
       return Error("invalid root func: {}", ctx.root_func->name());
     }
@@ -782,7 +713,7 @@ class WhereFunction : public helper::BaseLeafFunction {
     auto comparator = comparator_res.unwrap();
 
     // root == Query
-    if (auto data_res = any_cast_ptr<datas::QueryData>(ctx.user_data);
+    if (auto data_res = any_cast_ptr<datas::QueryRootData>(ctx.user_data);
         data_res) {
       auto data = data_res.value();
       auto table = data->table;
@@ -806,7 +737,7 @@ class WhereFunction : public helper::BaseLeafFunction {
     }
 
     // root == Update
-    if (auto data_res = any_cast_ptr<datas::UpdateData>(ctx.user_data);
+    if (auto data_res = any_cast_ptr<datas::UpdateRootData>(ctx.user_data);
         data_res) {
       auto data = data_res.value();
       auto table = data->table;
@@ -829,7 +760,7 @@ class WhereFunction : public helper::BaseLeafFunction {
     }
 
     // root == Delete
-    if (auto data_res = any_cast_ptr<datas::DeleteData>(ctx.user_data);
+    if (auto data_res = any_cast_ptr<datas::DeleteRootData>(ctx.user_data);
         data_res) {
       auto data = data_res.value();
       auto table = data->table;
@@ -908,7 +839,7 @@ class AggMaxFunction : public helper::BaseLeafFunction {
   }
 
   Result<bool> execute_leaf(LeafFunctionExecuteContext &ctx) override {
-    auto data_res = any_cast_ptr<datas::QueryData>(ctx.user_data);
+    auto data_res = any_cast_ptr<datas::QueryRootData>(ctx.user_data);
     if (!data_res.has_value()) {
       return Error("invalid root func: {}", ctx.root_func->name());
     }
@@ -947,7 +878,7 @@ class AggMinFunction : public helper::BaseLeafFunction {
   }
 
   Result<bool> execute_leaf(LeafFunctionExecuteContext &ctx) override {
-    auto data_res = any_cast_ptr<datas::QueryData>(ctx.user_data);
+    auto data_res = any_cast_ptr<datas::QueryRootData>(ctx.user_data);
     if (!data_res.has_value()) {
       return Error("invalid root func: {}", ctx.root_func->name());
     }
@@ -987,7 +918,7 @@ class AggAvgFunction : public helper::BaseLeafFunction {
   }
 
   Result<bool> execute_leaf(LeafFunctionExecuteContext &ctx) override {
-    auto data_res = any_cast_ptr<datas::QueryData>(ctx.user_data);
+    auto data_res = any_cast_ptr<datas::QueryRootData>(ctx.user_data);
     if (!data_res.has_value()) {
       return Error("invalid root func: {}", ctx.root_func->name());
     }
@@ -1059,7 +990,7 @@ class UpdateRootFunction : public helper::BaseRootFunction {
       return table_res.unwrap_err();
     }
 
-    auto data = std::make_shared<datas::UpdateData>();
+    auto data = std::make_shared<datas::UpdateRootData>();
     data->table = table_res.unwrap();
     ctx.user_data = data;
 
@@ -1067,7 +998,7 @@ class UpdateRootFunction : public helper::BaseRootFunction {
   }
 
   Result<bool> finalize_root(RootFunctionFinalizeContext &ctx) override {
-    auto data_res = any_cast_ptr<datas::UpdateData>(ctx.user_data);
+    auto data_res = any_cast_ptr<datas::UpdateRootData>(ctx.user_data);
     if (!data_res.has_value()) {
       return Error("invalid user data");
     }
@@ -1121,7 +1052,7 @@ class SetValueFunction : public helper::BaseLeafFunction {
   }
 
   Result<bool> execute_leaf(LeafFunctionExecuteContext &ctx) override {
-    auto data_res = any_cast_ptr<datas::UpdateData>(ctx.user_data);
+    auto data_res = any_cast_ptr<datas::UpdateRootData>(ctx.user_data);
     if (!data_res.has_value()) {
       return Error("invalid root func: {}", ctx.root_func->name());
     }
@@ -1153,7 +1084,7 @@ class DeleteRootFunction : public helper::BaseRootFunction {
       return table_res.unwrap_err();
     }
 
-    auto data = std::make_shared<datas::DeleteData>();
+    auto data = std::make_shared<datas::DeleteRootData>();
     data->table = table_res.unwrap();
     ctx.user_data = data;
 
@@ -1161,7 +1092,7 @@ class DeleteRootFunction : public helper::BaseRootFunction {
   }
 
   Result<bool> finalize_root(RootFunctionFinalizeContext &ctx) override {
-    auto data_res = any_cast_ptr<datas::DeleteData>(ctx.user_data);
+    auto data_res = any_cast_ptr<datas::DeleteRootData>(ctx.user_data);
     if (!data_res.has_value()) {
       return Error("invalid user data");
     }

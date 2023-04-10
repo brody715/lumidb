@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <future>
 #include <memory>
 #include <string>
 #include <utility>
@@ -64,8 +65,8 @@ class Database {
   virtual ~Database() = default;
 
   // metadata
-  // every time the database (table, plugins, functions) are modified, the
-  // version is increased
+  // every time the database metadata (table, plugins, functions) are modified,
+  // the version is increased
   virtual int64_t version() const = 0;
 
   // table related methods
@@ -91,12 +92,12 @@ class Database {
   virtual Result<FunctionPtr> get_function(const std::string &name) const = 0;
   virtual Result<FunctionPtrList> list_functions() const = 0;
 
-  // execute query, return result as a table
-  // execute must be thread-safe, and it shouldn't hold a lock when executing
-  // functions to avoid deadlock
-  virtual Result<TablePtr> execute(const Query &query) = 0;
+  // execute is thread-safe, it returns a future, it may be executed in a
+  // separate thread
+  virtual std::future<Result<TablePtr>> execute(const Query &query) = 0;
 
-  // helper function, used in functions or plugins
+  // helper function, used in functions or plugins for simplicity (a better
+  // design would be seperate below methods into a different interface)
   virtual void report_error(const ReportErrorParams &params) = 0;
   virtual void logging(Logger::LogLevel level, const std::string &msg) = 0;
   virtual void set_logger(LoggerPtr logger) = 0;

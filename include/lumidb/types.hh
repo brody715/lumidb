@@ -28,7 +28,8 @@ namespace lumidb {
 class Logger {
  public:
   enum LogLevel {
-    ERROR = 0,
+    NORMAL = 0,
+    ERROR,
     WARNING,
     INFO,
     DEBUG,
@@ -113,12 +114,20 @@ class Result {
  public:
   Result() = delete;
 
+  Result(const Result &result) : error_(result.error_), value_(result.value_){};
+
   Result(Result &&result)
       : error_(std::move(result.error_)), value_(std::move(result.value_)) {}
 
   Result &operator=(Result &&result) {
     error_ = std::move(result.error_);
     value_ = std::move(result.value_);
+    return *this;
+  }
+
+  Result &operator=(const Result &result) {
+    error_ = result.error_;
+    value_ = result.value_;
     return *this;
   }
 
@@ -332,7 +341,6 @@ class AnyValue {
 };
 
 std::ostream &operator<<(std::ostream &os, const AnyValue &value);
-
 
 }  // namespace lumidb
 
