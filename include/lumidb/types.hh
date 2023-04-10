@@ -4,6 +4,7 @@
 #include <iomanip>
 #include <optional>
 #include <ostream>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -286,6 +287,8 @@ class AnyValue {
       case ValueTypeKind::T_NULL:
         return false;
     }
+
+    return false;
   }
 
   bool operator>(const AnyValue &other) const { return other < *this; }
@@ -300,6 +303,7 @@ class AnyValue {
       case ValueTypeKind::T_NULL:
         return true;
     }
+    throw new std::runtime_error("Unknown value type");
   }
 
   bool operator!=(const AnyValue &other) const { return !(*this == other); }
@@ -368,19 +372,20 @@ struct Query {
   }
 
   bool operator!=(const Query &other) const { return !(*this == other); }
-
-  std::string to_string() const {
-    return fmt::format("{}", fmt::join(functions, " | "));
-  }
 };
 
 // Parse a query string into a Query object.
 Result<Query> parse_query(std::string_view query);
 
+std::ostream &operator<<(std::ostream &os, const Query &obj);
+
 }  // namespace lumidb
 
 template <>
-struct ::fmt::formatter<lumidb::AnyValue> : ::fmt::ostream_formatter {};
+struct fmt::formatter<lumidb::AnyValue> : fmt::ostream_formatter {};
 
 template <>
-struct ::fmt::formatter<lumidb::QueryFunction> : ::fmt::ostream_formatter {};
+struct fmt::formatter<lumidb::QueryFunction> : fmt::ostream_formatter {};
+
+template <>
+struct fmt::formatter<lumidb::Query> : fmt::ostream_formatter {};

@@ -1,6 +1,8 @@
 WITH =
 ARGS =
 
+.PHONY: help test e2e
+
 help:
 	@echo "help"
 
@@ -31,6 +33,9 @@ run:
 
 test:
 	cd build && make test
+
+e2e:
+	python3 e2e/test.py
 
 CASE = test_unit
 test-case:

@@ -1,0 +1,40 @@
+-- create_table.in --
+
+create_table("test1") | add_field("name", "string") | add_field("age", "float") | add_field("score", "float?")
+
+insert("test1") | add_row("Alice", 12, 80) | add_row("Bob", 13, 90) | add_row("Cindy", 14, 100)
+
+-- create_table.golden --
+
++--------+-------+--------+------+
+|  name  |  age  |  score | rows |
++--------+-------+--------+------+
+| string | float | float? | 0    |
++--------+-------+--------+------+
+
++-------+-----+-------+
+|  name | age | score |
++-------+-----+-------+
+| Alice | 12  | 80    |
++-------+-----+-------+
+| Bob   | 13  | 90    |
++-------+-----+-------+
+| Cindy | 14  | 100   |
++-------+-----+-------+
+
+-- update.in --
+
+update("test1") | where("age", "<", 14) | where("score", "<", 90) | set_value("score", 95) | set_value("name", "Alice Sister")
+
+-- update.golden --
+
++--------------+-----+-------+
+|     name     | age | score |
++--------------+-----+-------+
+| Alice Sister | 12  | 95    |
++--------------+-----+-------+
+| Bob          | 13  | 90    |
++--------------+-----+-------+
+| Cindy        | 14  | 100   |
++--------------+-----+-------+
+

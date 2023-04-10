@@ -1,7 +1,11 @@
 #include "lumidb/types.hh"
 
+#include <exception>
+#include <ostream>
+#include <stdexcept>
 #include <string_view>
 
+#include "fmt/core.h"
 #include "lumidb/utils.hh"
 using namespace std;
 using namespace lumidb;
@@ -169,6 +173,7 @@ AnyValue::Comparator AnyValue::get_comparator(CompareOperator op) {
       return [](const AnyValue &lhs, const AnyValue &rhs) { return lhs > rhs; };
       break;
   }
+  throw std::runtime_error("unsupported operator");
 }
 
 // parse <func>(<args>, <args>, ...)
@@ -235,4 +240,8 @@ Result<Query> lumidb::parse_query(string_view input) {
   }
 
   return query;
+}
+
+std::ostream &lumidb::operator<<(std::ostream &os, const Query &func) {
+  return os << fmt::format("{}", fmt::join(func.functions, " | "));
 }

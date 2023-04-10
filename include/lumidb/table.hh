@@ -95,6 +95,9 @@ class TableSchema {
 
 class Table {
  public:
+  using RowPredictor = std::function<bool(const ValueList &, size_t row_index)>;
+  using RowUpdater = std::function<void(ValueList &, size_t row_index)>;
+
   Table(std::string name, TableSchema schema) : name_(name), schema_(schema) {}
 
   static TablePtr create_ptr(std::string name, TableSchema schema) {
@@ -130,8 +133,7 @@ class Table {
   }
 
   // if predict return true, delete the row
-  template <typename Predict>
-  Result<bool> delete_rows(const Predict &predict) {
+  Result<bool> delete_rows(const RowPredictor &predict) {
     std::vector<ValueList> new_rows;
 
     for (size_t i = 0; i < rows_.size(); i++) {
@@ -142,21 +144,13 @@ class Table {
     }
 
     rows_ = new_rows;
+    return true;
   }
 
-  Result<bool> update_field_value(const std::vector<size_t> &row_indices,
-                                  size_t field_index, const AnyValue &value) {
-    for (auto row_index : row_indices) {
-      if (row_index >= rows_.size()) {
-        return Error("row index out of range");
-      }
-
-      auto &row = rows_[row_index];
-      if (field_index >= row.size()) {
-        return Error("field index out of range");
-      }
-
-      row[field_index] = value;
+  Result<bool> update_row(const RowUpdater &updater) {
+    for (size_t i = 0; i < rows_.size(); i++) {
+      auto &row = rows_[i];
+      updater(row, i);
     }
 
     return true;
@@ -168,8 +162,7 @@ class Table {
 
   const ValueList &get_row(size_t row_index) const { return rows_[row_index]; }
 
-  template <typename Predict>
-  Result<Table> filter(const Predict &predict) const {
+  Result<Table> filter(const RowPredictor &predict) const {
     Table new_table(name_, schema_);
 
     for (size_t i = 0; i < rows_.size(); i++) {

@@ -82,7 +82,7 @@ void test_parse_query() {
     } else {
       TEST_CHECK_(result.is_ok(), "%s",
                   fmt::format("input error: {}", c.input).c_str());
-      auto got = result.unwrap().to_string();
+      auto got = fmt::format("{}", result.unwrap());
       TEST_CHECK_(
           got == c.expected, "%s",
           fmt::format("input error: exp={}, got={}", c.expected, got).c_str());

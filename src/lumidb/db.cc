@@ -322,6 +322,8 @@ class MemoryDatabase : public lumidb::Database {
   IdGenerator plugin_id_gen_;
 
   std::atomic_int64_t version_ = 0;
+
+  // !! data race here, we can't use std::atomic_shared_ptr until c++20
   LoggerPtr logger_ = std::make_shared<StdLogger>();
 };
 

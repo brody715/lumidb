@@ -215,5 +215,4 @@ class BaseLeafFunction : virtual public BaseFunction {
 }  // namespace lumidb
 
 template <>
-struct ::fmt::formatter<lumidb::FunctionSignature> : ::fmt::ostream_formatter {
-};
+struct fmt::formatter<lumidb::FunctionSignature> : fmt::ostream_formatter {};

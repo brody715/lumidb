@@ -173,6 +173,8 @@ REPL::REPL(DatabasePtr db)
 
 Result<bool> REPL::init() {
   completer_.init();
+  db_->set_logger(logger_);
+
   return true;
 }
 

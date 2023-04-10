@@ -10,6 +10,7 @@
 #include <set>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "fmt/core.h"
@@ -65,6 +66,35 @@ optional<Ptr<T>> any_cast_ptr(std::any value) {
 }
 
 namespace datas {
+class Filters {
+ public:
+  void add_and_filter(Table::RowPredictor filter) {
+    and_filters.emplace_back(std::move(filter));
+  }
+
+  bool perdict(const ValueList &row, size_t row_idx) const {
+    for (auto &filter : and_filters) {
+      if (!filter(row, row_idx)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+ private:
+  std::vector<Table::RowPredictor> and_filters;
+};
+
+struct FieldNameUpdateItem {
+  std::string field_name;
+  AnyValue value;
+};
+
+struct FieldIndexUpdateItem {
+  size_t field_index;
+  AnyValue value;
+};
+
 struct CreateTableData {
   std::string name;
   TableSchema schema;
@@ -75,9 +105,21 @@ struct InsertData {
   std::vector<ValueList> rows;
 };
 
+struct UpdateData {
+  TablePtr table;
+  Filters filters;
+  vector<FieldNameUpdateItem> update_items;
+};
+
+struct DeleteData {
+  TablePtr table;
+  Filters filters;
+};
+
 struct QueryData {
   TablePtr table;
 };
+
 }  // namespace datas
 
 // functions
@@ -270,6 +312,7 @@ class LoadPluginFunction : public helper::BaseRootFunction {
       return res2.unwrap_err();
     }
 
+    ctx.db->logging(Logger::INFO, fmt::format("load plugin ok: {}", p->name()));
     ctx.result = table;
     return true;
   }
@@ -301,6 +344,8 @@ class UnloadPluginFunction : public helper::BaseRootFunction {
       return show_res.unwrap_err();
     }
 
+    ctx.db->logging(Logger::INFO,
+                    fmt::format("unload plugin ok: {}", plugin_id));
     ctx.result = show_res.unwrap();
 
     return true;
@@ -358,7 +403,12 @@ class CreateTableRootFunction : public helper::BaseRootFunction {
       return res.unwrap_err();
     }
 
-    ctx.result = table;
+    auto out_res = ctx.db->execute({{{"desc_table", {data->name}}}});
+    if (out_res.has_error()) {
+      return out_res.unwrap_err();
+    }
+
+    ctx.result = out_res.unwrap();
     return true;
   }
 };
@@ -731,29 +781,75 @@ class WhereFunction : public helper::BaseLeafFunction {
 
     auto comparator = comparator_res.unwrap();
 
-    // get root function
-    auto data_res = any_cast_ptr<datas::QueryData>(ctx.user_data);
-    if (!data_res.has_value()) {
-      return Error("invalid root func: {}", ctx.root_func->name());
+    // root == Query
+    if (auto data_res = any_cast_ptr<datas::QueryData>(ctx.user_data);
+        data_res) {
+      auto data = data_res.value();
+      auto table = data->table;
+
+      auto field_idx_res = table->schema().get_field_index(field_name);
+      if (field_idx_res.has_error()) {
+        return field_idx_res.unwrap_err();
+      }
+
+      auto new_table_res = table->filter([&](const auto &row, auto row_idx) {
+        auto field_value = row[field_idx_res.unwrap()];
+        return comparator(field_value, value);
+      });
+
+      if (new_table_res.has_error()) {
+        return new_table_res.unwrap_err();
+      }
+
+      data->table = make_table_ptr(new_table_res.unwrap());
+      return true;
     }
-    auto data = data_res.value();
-    auto table = data->table;
 
-    auto field_idx_res = table->schema().get_field_index(field_name);
-    if (field_idx_res.has_error()) {
-      return field_idx_res.unwrap_err();
+    // root == Update
+    if (auto data_res = any_cast_ptr<datas::UpdateData>(ctx.user_data);
+        data_res) {
+      auto data = data_res.value();
+      auto table = data->table;
+
+      auto field_idx_res = table->schema().get_field_index(field_name);
+      if (field_idx_res.has_error()) {
+        return field_idx_res.unwrap_err();
+      }
+
+      size_t field_idx = field_idx_res.unwrap();
+
+      data->filters.add_and_filter([field_idx,
+                                    comparator = std::move(comparator),
+                                    value](const auto &row, auto row_idx) {
+        auto field_value = row[field_idx];
+        return comparator(field_value, value);
+      });
+
+      return true;
     }
 
-    auto new_table_res = table->filter([&](const auto &row, auto row_idx) {
-      auto field_value = row[field_idx_res.unwrap()];
-      return comparator(field_value, value);
-    });
+    // root == Delete
+    if (auto data_res = any_cast_ptr<datas::DeleteData>(ctx.user_data);
+        data_res) {
+      auto data = data_res.value();
+      auto table = data->table;
 
-    if (new_table_res.has_error()) {
-      return new_table_res.unwrap_err();
+      auto field_idx_res = table->schema().get_field_index(field_name);
+      if (field_idx_res.has_error()) {
+        return field_idx_res.unwrap_err();
+      }
+
+      size_t field_idx = field_idx_res.unwrap();
+
+      data->filters.add_and_filter([field_idx,
+                                    comparator = std::move(comparator),
+                                    value](const auto &row, auto row_idx) {
+        auto field_value = row[field_idx];
+        return comparator(field_value, value);
+      });
+
+      return true;
     }
-
-    data->table = make_table_ptr(new_table_res.unwrap());
 
     return true;
   }
@@ -944,7 +1040,98 @@ class AggAvgFunction : public helper::BaseLeafFunction {
   }
 };
 
-// Query Aggregate Function
+// Update Function
+
+// Update
+class UpdateRootFunction : public helper::BaseRootFunction {
+ public:
+  UpdateRootFunction()
+      : BaseFunction("update",
+                     FunctionSignature::make({AnyType::from_string()})) {
+    add_description("update table");
+  }
+
+  Result<bool> execute_root(RootFunctionExecuteContext &ctx) override {
+    auto table_name = ctx.args[0].as_string();
+
+    auto table_res = ctx.db->get_table(table_name);
+    if (table_res.has_error()) {
+      return table_res.unwrap_err();
+    }
+
+    auto data = std::make_shared<datas::UpdateData>();
+    data->table = table_res.unwrap();
+    ctx.user_data = data;
+
+    return true;
+  }
+
+  Result<bool> finalize_root(RootFunctionFinalizeContext &ctx) override {
+    auto data_res = any_cast_ptr<datas::UpdateData>(ctx.user_data);
+    if (!data_res.has_value()) {
+      return Error("invalid user data");
+    }
+    auto data = data_res.value();
+
+    // transform updaters
+    std::vector<datas::FieldIndexUpdateItem> field_updates;
+
+    for (auto &field_name_update : data->update_items) {
+      // resolve field name
+      auto field_idx_res =
+          data->table->schema().get_field_index(field_name_update.field_name);
+      if (field_idx_res.has_error()) {
+        return field_idx_res.unwrap_err();
+      }
+
+      auto field_idx = field_idx_res.unwrap();
+      auto &field = data->table->schema().get_field(field_idx);
+
+      // check type
+      if (!field_name_update.value.is_instance_of(field.type)) {
+        return Error("invalid type: {}, field: {}",
+                     field_name_update.value.type().name(), field.name);
+      }
+
+      field_updates.push_back({field_idx, field_name_update.value});
+    }
+
+    data->table->update_row([&](ValueList &values, size_t row_idx) {
+      if (data->filters.perdict(values, row_idx)) {
+        for (auto &field_update : field_updates) {
+          values[field_update.field_index] = field_update.value;
+        }
+      }
+    });
+
+    ctx.result = data->table;
+    return true;
+  }
+};
+
+class SetValueFunction : public helper::BaseLeafFunction {
+ public:
+  SetValueFunction() : BaseFunction("set_value") {
+    set_signature({AnyType::from_string(), AnyType::from_any()});
+    add_description("set_value(field_name, value) update field value");
+  }
+
+  Result<bool> execute_leaf(LeafFunctionExecuteContext &ctx) override {
+    auto data_res = any_cast_ptr<datas::UpdateData>(ctx.user_data);
+    if (!data_res.has_value()) {
+      return Error("invalid root func: {}", ctx.root_func->name());
+    }
+    auto data = data_res.value();
+    auto table = data->table;
+
+    auto field_name = ctx.args[0].as_string();
+    auto value = ctx.args[1];
+
+    data->update_items.push_back({field_name, value});
+
+    return true;
+  }
+};
 
 class FunctionFactory {
  public:
@@ -957,6 +1144,8 @@ class FunctionFactory {
     register_function<UnloadPluginFunction>();
     register_function<CreateTableRootFunction>();
     register_function<AddFieldFunction>();
+    register_function<UpdateRootFunction>();
+    register_function<SetValueFunction>();
     register_function<InsertRootFunction>();
     register_function<AddRowFunction>();
     register_function<LoadCSVFunction>();

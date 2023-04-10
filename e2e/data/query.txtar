@@ -1,0 +1,97 @@
+-- create_table.in --
+
+create_table("test1") | add_field("name", "string") | add_field("age", "float") | add_field("score", "float?")
+
+-- create_table.golden --
+
++--------+-------+--------+------+
+|  name  |  age  |  score | rows |
++--------+-------+--------+------+
+| string | float | float? | 0    |
++--------+-------+--------+------+
+
+-- show_tables.in --
+
+show_tables
+
+-- show_tables.golden --
+
++-------+
+|  name |
++-------+
+| test1 |
++-------+
+
+-- insert_data.in --
+
+insert("test1") | add_row("Alice", 12, 80) | add_row("Bob", 13, 90) | add_row("Cindy", 14, 100)
+
+-- insert_data.golden --
+
++-------+-----+-------+
+|  name | age | score |
++-------+-----+-------+
+| Alice | 12  | 80    |
++-------+-----+-------+
+| Bob   | 13  | 90    |
++-------+-----+-------+
+| Cindy | 14  | 100   |
++-------+-----+-------+
+
+-- select.in --
+
+query("test1") | where("age", ">", 12) | select("name", "age")
+
+-- select.golden --
+
++-------+-----+
+|  name | age |
++-------+-----+
+| Bob   | 13  |
++-------+-----+
+| Cindy | 14  |
++-------+-----+
+
+-- sort.in --
+
+query("test1") | sort_desc("age", "name")
+
+-- sort.golden --
+
++-------+-----+-------+
+|  name | age | score |
++-------+-----+-------+
+| Cindy | 14  | 100   |
++-------+-----+-------+
+| Bob   | 13  | 90    |
++-------+-----+-------+
+| Alice | 12  | 80    |
++-------+-----+-------+
+
+-- agg.in --
+
+query("test1") | min("age", "score")
+
+query("test1") | max("age", "score")
+
+query("test1") | avg("age", "score")
+
+-- agg.golden --
+
++----------+------------+
+| min(age) | min(score) |
++----------+------------+
+| 12       | 80         |
++----------+------------+
+
++----------+------------+
+| max(age) | max(score) |
++----------+------------+
+| 14       | 100        |
++----------+------------+
+
++----------+------------+
+| avg(age) | avg(score) |
++----------+------------+
+| 13       | 90         |
++----------+------------+
