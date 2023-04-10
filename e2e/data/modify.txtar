@@ -38,3 +38,14 @@ update("test1") | where("age", "<", 14) | where("score", "<", 90) | set_value("s
 | Cindy        | 14  | 100   |
 +--------------+-----+-------+
 
+-- delete.in --
+
+delete("test1") | where("score", ">", 90)
+
+-- delete.golden --
+
++------+-----+-------+
+| name | age | score |
++------+-----+-------+
+| Bob  | 13  | 90    |
++------+-----+-------+

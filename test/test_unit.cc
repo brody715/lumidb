@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "acutest.h"
+#include "lumidb/query.hh"
 #include "lumidb/types.hh"
 #include "lumidb/utils.hh"
 #include "testlib.hh"
@@ -49,6 +50,88 @@ void test_strings_split() {
     auto result = lumidb::split(c.input, c.delim);
     TEST_CHECK_(result == c.expected, "%s",
                 fmt::format("input error: {}", c.input).c_str());
+  }
+}
+
+void test_tokenize_query_kind() {
+  using qtk = QueryTokenKind;
+  struct TestCase {
+    string input;
+    vector<QueryTokenKind> expected;
+  };
+
+  auto kinds_equal = [](const vector<QueryToken> &lhs,
+                        const vector<QueryTokenKind> &rhs) -> bool {
+    if (lhs.size() != rhs.size()) {
+      return false;
+    }
+
+    for (size_t i = 0; i < lhs.size(); i++) {
+      if (lhs[i].kind != rhs[i]) {
+        return false;
+      }
+    }
+
+    return true;
+  };
+
+  vector<TestCase> cases{
+      {"create_table('students', 'good')",
+       {qtk::Identifier, qtk::L_Paren, qtk::StringLiteral, qtk::Comma,
+        qtk::StringLiteral, qtk::R_Paren}},
+      {
+          "func1(null, 10, 20, 30, \"hello\")",
+          {qtk::Identifier, qtk::L_Paren, qtk::Identifier, qtk::Comma,
+           qtk::FloatLiteral, qtk::Comma, qtk::FloatLiteral, qtk::Comma,
+           qtk::FloatLiteral, qtk::Comma, qtk::StringLiteral, qtk::R_Paren},
+      },
+      {"@aaa 'abc' 'aaaa",
+       {qtk::ErrorToken, qtk::Identifier, qtk::StringLiteral, qtk::ErrorToken}},
+      // escaped
+      {"func1('a\\'b', 'a\\' \\tb')",
+       {qtk::Identifier, qtk::L_Paren, qtk::StringLiteral, qtk::Comma,
+        qtk::StringLiteral, qtk::R_Paren}},
+  };
+
+  for (auto &c : cases) {
+    auto result = lumidb::tokenize_query(c.input);
+    TEST_CHECK_(kinds_equal(result, c.expected), "%s",
+                fmt::format("input error: {}", c.input).c_str());
+  }
+}
+
+void test_tokenize_query_loc() {
+  struct TestCase {
+    string input;
+    vector<SourceLocation> expected;
+  };
+
+  auto locs_equal = [](const vector<QueryToken> &lhs,
+                       const vector<SourceLocation> &rhs) -> bool {
+    if (lhs.size() != rhs.size()) {
+      return false;
+    }
+
+    for (size_t i = 0; i < lhs.size(); i++) {
+      if (!(lhs[i].loc == rhs[i])) {
+        return false;
+      }
+    }
+
+    return true;
+  };
+
+  vector<TestCase> cases = {
+      {"create_table('students')",
+       {/* ident */ {0, 12}, /* lparen */ {12, 13}, /* string */ {13, 23},
+        /* rparen */ {23, 24}}},
+  };
+
+  for (auto &c : cases) {
+    auto result = lumidb::tokenize_query(c.input);
+    TEST_CHECK_(
+        locs_equal(result, c.expected), "%s",
+        fmt::format("input error: {}, output={}", c.input, result).c_str());
   }
 }
 
@@ -125,7 +208,9 @@ void test_parse_csv() {
 #ifndef DEBUG_MAIN
 TEST_LIST = {TEST_FUNC(test_strings_trim),
              TEST_FUNC(test_strings_split),
+             TEST_FUNC(test_tokenize_query_kind),
              TEST_FUNC(test_parse_query),
+             TEST_FUNC(test_tokenize_query_loc),
              TEST_FUNC(test_parse_csv),
              {NULL, NULL}};
 #endif

@@ -4,12 +4,14 @@
 #include <iostream>
 #include <istream>
 #include <memory>
+#include <string>
 #include <string_view>
 #include <vector>
 
 #include "../../third-party/isocline/src/completions.h"
 #include "isocline.h"
 #include "lumidb/function.hh"
+#include "lumidb/query.hh"
 #include "lumidb/table.hh"
 #include "lumidb/types.hh"
 #include "lumidb/utils.hh"
@@ -40,7 +42,6 @@ class ConsoleLogger : public Logger {
 // Begin Autocomplete
 
 namespace details {
-static void nop_completer_func(ic_completion_env_t *cenv, const char *prefix){};
 
 static void word_completer(ic_completion_env_t *cenv, const char *word) {
   static const char *completions[] = {"exit", NULL};
@@ -78,20 +79,45 @@ static void word_completer(ic_completion_env_t *cenv, const char *word) {
   }
 }
 
+static void completer_func_nop(ic_completion_env_t *cenv, const char *prefix){};
+
 static void completer_func(ic_completion_env_t *cenv, const char *prefix) {
   // try to complete file names from the roots "." and "/usr/local"
   // ic_complete_filename(cenv, prefix, 0, ".", ".so" /* any extension */);
 
   ic_complete_word(cenv, prefix, &word_completer, nullptr);
 }
+
+static void highlighter_func_nop(ic_highlight_env_t *henv, const char *word,
+                                 void *arg) {}
+static void highlighter_func(ic_highlight_env_t *henv, const char *word,
+                             void *arg) {
+  auto tokens = tokenize_query(word);
+
+  auto completer = reinterpret_cast<AutoCompleter *>(arg);
+  if (completer == nullptr) {
+    return;
+  }
+
+  auto items = completer->highlight(word);
+  for (auto &item : items) {
+    ic_highlight(henv, item.pos, item.cnt, item.style);
+  }
+}
 }  // namespace details
 
 void AutoCompleter::init() {
   ic_set_history("lumidb_history.txt", -1);
   ic_set_default_completer(&details::completer_func, this);
+  ic_set_default_highlighter(&details::highlighter_func, this);
   ic_enable_auto_tab(true);
 
   reload_complete_items();
+}
+
+AutoCompleter::~AutoCompleter() {
+  ic_set_default_completer(&details::completer_func_nop, nullptr);
+  ic_set_default_highlighter(&details::highlighter_func_nop, nullptr);
 }
 
 void AutoCompleter::check_reload() {
@@ -150,8 +176,40 @@ std::vector<const AutoCompleteItem *> AutoCompleter::complete(
   return items;
 }
 
-AutoCompleter::~AutoCompleter() {
-  ic_set_default_completer(&details::nop_completer_func, nullptr);
+std::vector<HighlightItem> AutoCompleter::highlight(std::string_view query) {
+  using qtk = QueryTokenKind;
+
+  std::vector<HighlightItem> items;
+  auto tokens = tokenize_query(query);
+  for (auto &token : tokens) {
+    const char *color = nullptr;
+    switch (token.kind) {
+      case QueryTokenKind::Identifier:
+        color = "type";
+        break;
+      case QueryTokenKind::StringLiteral:
+        color = "string";
+        break;
+      case QueryTokenKind::FloatLiteral:
+        color = "number";
+        break;
+      case QueryTokenKind::Pipe:
+        color = "keyword";
+        break;
+      case QueryTokenKind::L_Paren:
+      case QueryTokenKind::R_Paren:
+      case QueryTokenKind::Comma:
+      case QueryTokenKind::EOS:
+      case QueryTokenKind::ErrorToken:
+        color = nullptr;
+        break;
+    }
+
+    items.push_back({token.loc.column_start,
+                     token.loc.column_end - token.loc.column_start, color});
+  }
+
+  return items;
 }
 
 // End Autocomplete

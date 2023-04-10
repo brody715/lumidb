@@ -39,7 +39,8 @@ e2e:
 
 CASE = test_unit
 test-case:
-	@cd build && make -j4 1>/dev/null
+	# @cd build && make -j 1>/dev/null
+	@cd build && make -j
 	@./build/test/${CASE}
 
 clean:

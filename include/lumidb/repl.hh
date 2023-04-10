@@ -76,6 +76,12 @@ struct AutoCompleteItem {
   std::string help;
 };
 
+struct HighlightItem {
+  size_t pos;
+  size_t cnt;
+  const char *style;
+};
+
 class AutoCompleter {
  public:
   enum CompleteType : int { Function = 01, Table = 10 };
@@ -86,6 +92,8 @@ class AutoCompleter {
   void init();
   std::vector<const AutoCompleteItem *> complete(CompleteType type,
                                                  std::string_view prefix);
+
+  std::vector<HighlightItem> highlight(std::string_view input);
 
   // check reload: check whether we should reload the complete items to sync
   // with current db states

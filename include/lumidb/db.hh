@@ -6,6 +6,7 @@
 #include <utility>
 #include <vector>
 
+#include "lumidb/query.hh"
 #include "lumidb/types.hh"
 
 namespace lumidb {

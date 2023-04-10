@@ -1096,13 +1096,17 @@ class UpdateRootFunction : public helper::BaseRootFunction {
       field_updates.push_back({field_idx, field_name_update.value});
     }
 
-    data->table->update_row([&](ValueList &values, size_t row_idx) {
-      if (data->filters.perdict(values, row_idx)) {
-        for (auto &field_update : field_updates) {
-          values[field_update.field_index] = field_update.value;
-        }
-      }
-    });
+    auto u_res =
+        data->table->update_row([&](ValueList &values, size_t row_idx) {
+          if (data->filters.perdict(values, row_idx)) {
+            for (auto &field_update : field_updates) {
+              values[field_update.field_index] = field_update.value;
+            }
+          }
+        });
+    if (u_res.has_error()) {
+      return u_res.unwrap_err();
+    }
 
     ctx.result = data->table;
     return true;
@@ -1133,6 +1137,49 @@ class SetValueFunction : public helper::BaseLeafFunction {
   }
 };
 
+// Delete
+class DeleteRootFunction : public helper::BaseRootFunction {
+ public:
+  DeleteRootFunction() : BaseFunction("delete") {
+    set_signature({AnyType::from_string()});
+    add_description("delete rows from table");
+  }
+
+  Result<bool> execute_root(RootFunctionExecuteContext &ctx) override {
+    auto table_name = ctx.args[0].as_string();
+
+    auto table_res = ctx.db->get_table(table_name);
+    if (table_res.has_error()) {
+      return table_res.unwrap_err();
+    }
+
+    auto data = std::make_shared<datas::DeleteData>();
+    data->table = table_res.unwrap();
+    ctx.user_data = data;
+
+    return true;
+  }
+
+  Result<bool> finalize_root(RootFunctionFinalizeContext &ctx) override {
+    auto data_res = any_cast_ptr<datas::DeleteData>(ctx.user_data);
+    if (!data_res.has_value()) {
+      return Error("invalid user data");
+    }
+    auto data = data_res.value();
+
+    auto res =
+        data->table->delete_rows([&](const ValueList &values, size_t row_idx) {
+          return data->filters.perdict(values, row_idx);
+        });
+    if (res.has_error()) {
+      return res.unwrap_err();
+    }
+
+    ctx.result = data->table;
+    return true;
+  }
+};
+
 class FunctionFactory {
  public:
   FunctionFactory() {
@@ -1145,6 +1192,7 @@ class FunctionFactory {
     register_function<CreateTableRootFunction>();
     register_function<AddFieldFunction>();
     register_function<UpdateRootFunction>();
+    register_function<DeleteRootFunction>();
     register_function<SetValueFunction>();
     register_function<InsertRootFunction>();
     register_function<AddRowFunction>();

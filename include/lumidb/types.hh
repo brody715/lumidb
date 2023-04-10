@@ -333,59 +333,8 @@ class AnyValue {
 
 std::ostream &operator<<(std::ostream &os, const AnyValue &value);
 
-// Query Language
-
-// <func>(<arg1>, <arg2>, ...) | <func>(<arg1>, <arg2>, ...) | ...
-
-struct QueryFunction {
-  std::string name;
-  std::vector<AnyValue> arguments;
-
-  bool operator==(const QueryFunction &other) const {
-    if (name != other.name) return false;
-    if (arguments.size() != other.arguments.size()) return false;
-    for (size_t i = 0; i < arguments.size(); i++) {
-      if (arguments[i] != other.arguments[i]) return false;
-    }
-    return true;
-  }
-
-  bool operator!=(const QueryFunction &other) const {
-    return !(*this == other);
-  }
-};
-
-std::ostream &operator<<(std::ostream &os, const QueryFunction &obj);
-
-struct Query {
-  Query() = default;
-  Query(std::vector<QueryFunction> functions) : functions(functions) {}
-
-  std::vector<QueryFunction> functions;
-
-  bool operator==(const Query &other) const {
-    if (functions.size() != other.functions.size()) return false;
-    for (size_t i = 0; i < functions.size(); i++) {
-      if (functions[i] != other.functions[i]) return false;
-    }
-    return true;
-  }
-
-  bool operator!=(const Query &other) const { return !(*this == other); }
-};
-
-// Parse a query string into a Query object.
-Result<Query> parse_query(std::string_view query);
-
-std::ostream &operator<<(std::ostream &os, const Query &obj);
 
 }  // namespace lumidb
 
 template <>
 struct fmt::formatter<lumidb::AnyValue> : fmt::ostream_formatter {};
-
-template <>
-struct fmt::formatter<lumidb::QueryFunction> : fmt::ostream_formatter {};
-
-template <>
-struct fmt::formatter<lumidb::Query> : fmt::ostream_formatter {};
