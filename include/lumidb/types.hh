@@ -28,11 +28,11 @@ namespace lumidb {
 class Logger {
  public:
   enum LogLevel {
-    NORMAL = 0,
-    ERROR,
-    WARNING,
-    INFO,
-    DEBUG,
+    Normal = 0,
+    Error,
+    Warning,
+    Info,
+    Debug,
   };
   virtual void log(LogLevel level, const std::string &message) = 0;
 };
@@ -68,7 +68,7 @@ enum class CompareOperator {
 
 enum class Status {
   OK = 0,
-  ERROR,
+  Error,
   NOT_IMPLEMENTED,
 };
 
@@ -82,11 +82,11 @@ struct Error {
       : status(status), message(status_to_string(status)) {}
 
   explicit Error(std::string message)
-      : status(Status::ERROR), message(message) {}
+      : status(Status::Error), message(message) {}
 
   template <typename... T>
   explicit Error(fmt::format_string<T...> fmt, T &&...args)
-      : status(Status::ERROR), message(fmt::format(fmt, args...)) {}
+      : status(Status::Error), message(fmt::format(fmt, args...)) {}
 
   template <typename... T>
   Error add_message(fmt::format_string<T...> fmt, T &&...args) const {
@@ -255,11 +255,11 @@ class AnyValue {
   using Comparator =
       std::function<bool(const AnyValue &lhs, const AnyValue &rhs)>;
 
+  AnyValue() : AnyValue(ValueTypeKind::T_NULL, {}) {}
   AnyValue(std::string_view str)
       : AnyValue(ValueTypeKind::T_STRING, std::string(str)) {}
   AnyValue(std::string str) : AnyValue(ValueTypeKind::T_STRING, str) {}
   AnyValue(float value) : AnyValue(ValueTypeKind::T_FLOAT, value) {}
-  AnyValue() : AnyValue(ValueTypeKind::T_NULL, {}) {}
 
   ValueTypeKind kind() const { return kind_; }
   AnyType type() const { return type_; }

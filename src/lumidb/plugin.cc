@@ -1,64 +1,16 @@
 #include "lumidb/plugin.hh"
 
 #include <memory>
+#include <string>
 
 #include "lumidb/db.hh"
+#include "lumidb/dynamic_library.hh"
 #include "lumidb/plugin_def.hh"
 #include "lumidb/types.hh"
 
-using namespace std;
 using namespace lumidb;
 
-#ifdef LUMIDB_PLATFORM_WINDOWS
-
-#elif LUMIDB_PLATFORM_LINUX
-#include "dlfcn.h"
-
-namespace lumidb {
-class DynamicLibraryInternal {
- public:
-  DynamicLibraryInternal(void *handle) : handle_(handle) {}
-
-  static Result<std::unique_ptr<DynamicLibraryInternal> > load_from_path(
-      const std::string &library_path) {
-    void *handle = dlopen(library_path.c_str(), RTLD_LAZY);
-
-    if (!handle) {
-      return Error(dlerror());
-    }
-
-    return std::make_unique<DynamicLibraryInternal>(handle);
-  }
-
-  ~DynamicLibraryInternal() {
-    if (handle_) {
-      dlclose(handle_);
-      handle_ = nullptr;
-    }
-  }
-
-  void *get_symbol_address(const std::string &symbol_name) {
-    return dlsym(handle_, symbol_name.c_str());
-  }
-
-  void *handle_;
-};
-}  // namespace lumidb
-
-#endif
-
-Result<DynamicLibrary> DynamicLibrary::load_from_path(
-    const std::string &library_path) {
-  auto res = DynamicLibraryInternal::load_from_path(library_path);
-  if (!res) {
-    return res.unwrap_err();
-  }
-  return DynamicLibrary(library_path, std::move(res.unwrap()));
-}
-
-void *DynamicLibrary::get_symbol_address(const std::string &symbol_name) {
-  return internal_->get_symbol_address(symbol_name);
-}
+std::string Plugin::load_path() const { return library_->load_path(); }
 
 Result<PluginPtr> Plugin::load_plugin(const InternalLoadPluginParams &params) {
   auto lib_res = DynamicLibrary::load_from_path(params.path);
@@ -66,11 +18,12 @@ Result<PluginPtr> Plugin::load_plugin(const InternalLoadPluginParams &params) {
     return lib_res.unwrap_err().add_message("failed to load plugin library");
   }
 
-  auto plugin =
-      std::make_shared<Plugin>(Plugin(params.id, std::move(lib_res.unwrap())));
+  auto lib_ptr = std::make_shared<DynamicLibrary>(std::move(lib_res.unwrap()));
 
-  void *plugin_func_ptr =
-      plugin->library_.get_symbol_address("lumi_db_get_plugin_def");
+  auto plugin = std::make_shared<Plugin>(Plugin(params.id, std::move(lib_ptr)));
+
+  symbol_address_t plugin_func_ptr =
+      plugin->library_->get_symbol_address("lumi_db_get_plugin_def");
   if (plugin_func_ptr == nullptr) {
     return Error(
         "failed to find symbol `lumi_db_get_plugin_def` in plugin, "

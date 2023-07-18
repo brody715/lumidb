@@ -77,7 +77,7 @@ class AddTimerFunction : public helper::BaseRootFunction {
     ctx.result = out_res.unwrap();
 
     ctx.db->logging(
-        Logger::INFO,
+        Logger::Info,
         fmt::format("timer-plugin: added timer: id={}", res.unwrap()));
 
     return true;
@@ -116,7 +116,7 @@ class RemoveTimerFunction : public helper::BaseRootFunction {
     ctx.result = out_res.unwrap();
 
     ctx.db->logging(
-        Logger::INFO,
+        Logger::Info,
         fmt::format("timer-plugin: removed timer: id={}", timer_id));
 
     return true;

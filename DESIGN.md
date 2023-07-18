@@ -1,9 +1,5 @@
 ## Intro
 
-考虑到功能的复用性，我们可以将学生成绩管理系统抽象为一个内存型数据库，这样也使得
-代码逻辑更加清晰，用户只需要在输入时自己建表，就可以变成学生成绩管理系统。我们把
-该数据库称为 LumiDB，即鹿鸣数据库。
-
 LumiDB 是一个内存型数据库，即所有的状态和数据都保存在内存中，不支持持久化。
 
 用户可通过 Query DSL 语言进行数据的查询、插入、修改、删除等操作。
@@ -20,6 +16,8 @@ query("students") | where("姓名", "=", "张三") | order_by("语文", "desc") 
 
 ### Database
 
+见 [./include/lumidb/db.hh](./include/lumidb/db.hh)
+
 数据库对象，全局唯一，管理了所有的表，所有的函数实现以及所有的插件，并负责执行查询语句。
 
 数据库对象是线程安全的，可以在多个线程中同时访问
@@ -27,6 +25,8 @@ query("students") | where("姓名", "=", "张三") | order_by("语文", "desc") 
 目前出于简单考虑，插件能够直接访问和操作 Db 对象，添加新的函数定义和实现，访问元信息等。
 
 ### Table
+
+见 [./include/lumidb/table.hh](./include/lumidb/table.hh)
 
 表对象，LumiDB 中存储数据状态或中间结果的一种数据结构，类似于关系型数据库中的表。
 
@@ -42,6 +42,8 @@ SourceTable 用于存储源表状态，ResultTable 用于存储中间结果以�
 
 ### Function
 
+见 [./include/lumidb/function.hh](./include/lumidb/function.hh) 与 [./include/lumidb/function.cc](./include/lumidb/function.cc)
+
 函数对象，函数实现了具体的增删改查逻辑，需要支持以组合的形式链式调用。
 
 函数分为 RootFunction 以及 ChildFunction 两种类型
@@ -54,15 +56,21 @@ LumiDB 将遍历函数链，将上一函数的返回值作为下一函数的输�
 
 ### Plugins
 
+见 [./include/lumidb/plugins.hh](./include/lumidb/plugins.hh)
+
 插件机制，用户可以通过编写插件，实现自定义的功能，如添加新的函数定义和实现，访问元信息等。插件通过动态链接库的形式加载到 LumiDB 中。
 
-### CLI
+### REPL
+
+见 [./include/lumidb/repl.hh](./include/lumidb/repl.hh)
 
 交互式命令行工具，提供一个 REPL 环境，用户可以在该环境中执行查询语句，查看元信息，加载插件等。
 
-命令行工具读取用户工作流，调用 Database 执行查询语句，将结果输出到标准输出。
+命令行工具读取用户输入，进行代码补全或者语法高亮，解析输入为 Query 对象，调用 Database 执行查询语句，将结果输出到标准输出。
 
 ## 实现一个插件
+
+见 [./src/plugins](./src/plugins)
 
 插件需要实现一个 C 函数 `LumiDBPluginDef lumi_db_get_plugin_def()`，返回一个 `LumiDBPluginDef` 结构体，该结构体包含了插件的名称，版本，描述，以及插件需要实现的生命周期函数。
 

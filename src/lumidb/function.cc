@@ -243,7 +243,7 @@ class LoadPluginFunction : public helper::BaseRootFunction {
       return res2.unwrap_err();
     }
 
-    ctx.db->logging(Logger::INFO, fmt::format("load plugin ok: {}", p->name()));
+    ctx.db->logging(Logger::Info, fmt::format("load plugin ok: {}", p->name()));
     ctx.result = table;
     return true;
   }
@@ -275,7 +275,7 @@ class UnloadPluginFunction : public helper::BaseRootFunction {
       return show_res.unwrap_err();
     }
 
-    ctx.db->logging(Logger::INFO,
+    ctx.db->logging(Logger::Info,
                     fmt::format("unload plugin ok: {}", plugin_id));
     ctx.result = show_res.unwrap();
 

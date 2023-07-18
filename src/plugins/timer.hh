@@ -149,7 +149,7 @@ class TimerManager {
         auto expected_sleep_time = std::chrono::milliseconds(500);
 
         // sleep for the remaining time
-        if (elapsed < expected_sleep_time) {
+        if (running_ && elapsed < expected_sleep_time) {
           std::this_thread::sleep_for(expected_sleep_time - elapsed);
         }
       }
@@ -191,7 +191,7 @@ class TimerManager {
     scheduler_.add_task(
         timer_id,
         [this, query, timer_desc, db]() {
-          db->logging(lumidb::Logger::INFO,
+          db->logging(lumidb::Logger::Info,
                       fmt::format("[timer plugin]: executing timer id={}, "
                                   "query='{}', interval={}",
                                   timer_desc.id, timer_desc.query_string,
@@ -208,7 +208,7 @@ class TimerManager {
           }
 
           auto result = res.unwrap();
-          db->logging(lumidb::Logger::NORMAL, fmt::format("{}", *result));
+          db->logging(lumidb::Logger::Normal, fmt::format("{}", *result));
         },
         interval);
 

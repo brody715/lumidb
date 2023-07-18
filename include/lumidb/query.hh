@@ -29,6 +29,7 @@ enum class QueryTokenKind {
   Identifier = 0,
   StringLiteral,
   FloatLiteral,
+  NullLiteral,
   L_Paren,
   R_Paren,
   Comma,

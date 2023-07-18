@@ -23,19 +23,19 @@ class ConsoleLogger : public Logger {
  public:
   void log(Logger::LogLevel level, const std::string &msg) override {
     switch (level) {
-      case LogLevel::NORMAL:
+      case LogLevel::Normal:
         std::cout << msg << std::endl;
         break;
-      case LogLevel::ERROR:
+      case LogLevel::Error:
         ic_printf("[red]\\[error]: %s[/red]\n", msg.c_str());
         break;
-      case LogLevel::WARNING:
+      case LogLevel::Warning:
         ic_printf("[yellow]\\[warn]: %s[/yellow]\n", msg.c_str());
         break;
-      case LogLevel::INFO:
+      case LogLevel::Info:
         ic_printf("[green]\\[info]: %s[/green]\n", msg.c_str());
         break;
-      case LogLevel::DEBUG:
+      case LogLevel::Debug:
         ic_printf("[blue]\\[debug]: %s[/blue]\n", msg.c_str());
         break;
     }
@@ -249,7 +249,7 @@ void REPL::pre_run(std::istream &in) {
       continue;
     }
 
-    logger_->log(logger_->INFO, fmt::format("executing: {}", line));
+    logger_->log(logger_->Info, fmt::format("executing: {}", line));
 
     if (!handle_input(line)) {
       break;
@@ -294,7 +294,7 @@ bool REPL::handle_input(std::string_view input) {
   auto query_res = parse_query(input);
 
   if (query_res.has_error()) {
-    logger_->log(logger_->ERROR, query_res.unwrap_err().to_string());
+    logger_->log(logger_->Error, query_res.unwrap_err().to_string());
     return true;
   }
 
@@ -303,7 +303,7 @@ bool REPL::handle_input(std::string_view input) {
     auto table = result.unwrap();
     table->dump(std::cout) << std::endl;
   } else {
-    logger_->log(logger_->ERROR, result.unwrap_err().to_string());
+    logger_->log(logger_->Error, result.unwrap_err().to_string());
   }
 
   return true;

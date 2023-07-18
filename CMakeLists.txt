@@ -3,7 +3,7 @@ project(lumidb VERSION 0.1.0)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS true)
 set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_FLAGS "-std=c++17 -Wno-defaulted-function-deleted")
+set(CMAKE_CXX_FLAGS "-std=c++17")
 
 option(lumidb_test "enable test" on)
 

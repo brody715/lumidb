@@ -7,6 +7,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -91,10 +92,20 @@ class MemoryDatabase : public lumidb::Database {
   }
 
   virtual Result<bool> unload_plugin(string id) override {
-    std::lock_guard lock(mutex_);
-    if (plugins_.erase(id)) {
+    std::optional<PluginPtr> plugin;
+    {
+      std::lock_guard lock(mutex_);
+      auto it = plugins_.find(id);
+      if (it == plugins_.end()) {
+        return Error("plugin not found: {}", id);
+      }
+
+      plugin = it->second;
+      plugins_.erase(it);
       ++version_;
-    };
+    }
+
+    // release plugin here, to avoid deadlock
     return true;
   }
   virtual Result<PluginPtr> get_plugin(string id) const override {
@@ -301,7 +312,7 @@ class MemoryDatabase : public lumidb::Database {
 
   // helper function
   virtual void report_error(const ReportErrorParams &params) override {
-    logger_->log(Logger::ERROR, fmt::format("{}: {}: {}", params.source,
+    logger_->log(Logger::Error, fmt::format("{}: {}: {}", params.source,
                                             params.name, params.error.message));
   }
 

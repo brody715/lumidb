@@ -9,38 +9,13 @@
 
 namespace lumidb {
 
-class DynamicLibraryInternal;
-
-// Simple wrapper for dynamic library across platforms
-class DynamicLibrary {
- public:
-  static Result<DynamicLibrary> load_from_path(const std::string &path);
-  ~DynamicLibrary() = default;
-  DynamicLibrary(DynamicLibrary &&) = default;
-
-  // Load a symbol from the library, get the address of the symbol
-  void *get_symbol_address(const std::string &symbol_name);
-
-  std::string load_path() const { return load_path_; }
-
- private:
-  DynamicLibrary(std::string load_path_,
-                 std::shared_ptr<DynamicLibraryInternal> internal)
-      : load_path_(load_path_), internal_(std::move(internal)) {}
-
-  std::string load_path_;
-
-  // It needs some workaround to use impl pattern using unique_ptr (call deleter
-  // when moved), so we choose shared_ptr
-  std::shared_ptr<DynamicLibraryInternal> internal_;
-};
-
 struct InternalLoadPluginParams {
   Database *db;
   plugin_id_t id;
   std::string path;
 };
 
+class DynamicLibrary;
 // Plugin Instance, not interface, a concrete class to manage loaded dll
 class Plugin {
  public:
@@ -63,10 +38,10 @@ class Plugin {
   // get plugin version
   std::string_view version() const { return def_->version; };
 
-  std::string load_path() const { return library_.load_path(); };
+  std::string load_path() const;
 
  private:
-  Plugin(plugin_id_t id, DynamicLibrary library)
+  Plugin(plugin_id_t id, std::shared_ptr<DynamicLibrary> library)
       : id_(id), library_(std::move(library)) {}
 
  private:
@@ -74,7 +49,7 @@ class Plugin {
   plugin_id_t id_;
   LumiDBPluginContext ctx_;
   std::optional<LumiDBPluginDef> def_;
-  DynamicLibrary library_;
+  std::shared_ptr<DynamicLibrary> library_;
 };
 
 }  // namespace lumidb

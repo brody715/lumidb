@@ -1,8 +1,9 @@
 #include "lumidb/types.hh"
 
 #include <exception>
-#include <ostream>
+#include <sstream>
 #include <stdexcept>
+#include <string>
 #include <string_view>
 
 #include "fmt/core.h"
@@ -39,7 +40,7 @@ std::string lumidb::status_to_string(Status status) {
   switch (status) {
     case Status::OK:
       return "OK";
-    case Status::ERROR:
+    case Status::Error:
       return "ERROR";
     case Status::NOT_IMPLEMENTED:
       return "NOT_IMPLEMENTED";
@@ -65,7 +66,7 @@ std::ostream &lumidb::operator<<(std::ostream &os, const AnyValue &value) {
 }
 
 std::string AnyValue::format_to_string() const {
-  thread_local static std::ostringstream os;
+  thread_local static std::ostringstream os{};
   os.str("");
   os << *this;
   return os.str();

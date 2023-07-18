@@ -47,6 +47,9 @@ std::ostream &lumidb::operator<<(std::ostream &os, const QueryTokenKind &kind) {
     case QueryTokenKind::FloatLiteral:
       os << "FloatLiteral";
       break;
+    case QueryTokenKind::NullLiteral:
+      os << "NullLiteral";
+      break;
     case QueryTokenKind::L_Paren:
       os << "L_Paren";
       break;
@@ -184,6 +187,12 @@ class QueryLexer {
 
     auto value = input.substr(0, end);
     auto loc = step_location(value.length());
+
+    if (value == "null") {
+      return QueryToken{loc, QueryTokenKind::NullLiteral,
+                        AnyValue::from_null()};
+    }
+
     return QueryToken{loc, QueryTokenKind::Identifier,
                       AnyValue::from_string(value)};
   }
@@ -354,7 +363,7 @@ class QueryParser {
     switch (token.kind) {
       case QueryTokenKind::StringLiteral:
       case QueryTokenKind::FloatLiteral:
-      case QueryTokenKind::Identifier:
+      case QueryTokenKind::NullLiteral:
         return token.value;
       default:
         throw ParseException(

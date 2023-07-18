@@ -1,3 +1,5 @@
+#include <map>
+#include <set>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -5,6 +7,7 @@
 
 #include "acutest.h"
 #include "lumidb/query.hh"
+#include "lumidb/repl.hh"
 #include "lumidb/types.hh"
 #include "lumidb/utils.hh"
 #include "testlib.hh"
@@ -81,7 +84,7 @@ void test_tokenize_query_kind() {
         qtk::StringLiteral, qtk::R_Paren}},
       {
           "func1(null, 10, 20, 30, \"hello\")",
-          {qtk::Identifier, qtk::L_Paren, qtk::Identifier, qtk::Comma,
+          {qtk::Identifier, qtk::L_Paren, qtk::NullLiteral, qtk::Comma,
            qtk::FloatLiteral, qtk::Comma, qtk::FloatLiteral, qtk::Comma,
            qtk::FloatLiteral, qtk::Comma, qtk::StringLiteral, qtk::R_Paren},
       },
@@ -188,7 +191,6 @@ void test_parse_csv() {
   };
 
   for (size_t i = 0; i < cases.size(); i++) {
-    TEST_CASE_("%ld", i);
     auto &c = cases[i];
     std::stringstream ss(c.input);
     auto result = lumidb::parse_csv(ss);
@@ -205,14 +207,64 @@ void test_parse_csv() {
   }
 }
 
+void test_trie_tree() {
+  struct TrieQuery {
+    string prefix;
+    vector<int> expected;
+  };
+  struct TestCase {
+    map<string, int> inputs;
+    vector<TrieQuery> queries;
+  };
+
+  vector<TestCase> cases = {{
+      /* input */ {{"hello", 1}, {"hel", 2}, {"house", 3}, {"hou", 4}},
+      /* quries */
+      {TrieQuery{"h", {1, 2, 3, 4}}, TrieQuery{"he", {1, 2}},
+       TrieQuery{"ho", {3, 4}}},
+  }};
+
+  auto copy_vecs = [](const vector<const int *> &lhs) -> vector<int> {
+    vector<int> res;
+    for (auto &p : lhs) {
+      res.push_back(*p);
+    }
+    return res;
+  };
+
+  auto equal_set = [](const vector<int> &lhs, const vector<int> &rhs) -> bool {
+    if (lhs.size() != rhs.size()) {
+      return false;
+    }
+
+    auto lhs_set = set(lhs.begin(), lhs.end());
+    auto rhs_set = set(rhs.begin(), rhs.end());
+
+    return lhs_set == rhs_set;
+  };
+
+  for (auto &c : cases) {
+    lumidb::TrieTree<int> trie;
+    for (auto &kv : c.inputs) {
+      trie.insert(kv.first, kv.second);
+    }
+
+    for (auto &q : c.queries) {
+      vector<const int *> results;
+      trie.find_prefix(q.prefix, results);
+      auto val_results = copy_vecs(results);
+      TEST_CHECK_(equal_set(val_results, q.expected), "%s",
+                  fmt::format("input error: {}, got: {}", q.prefix, val_results)
+                      .c_str());
+    }
+  }
+}
+
 #ifndef DEBUG_MAIN
-TEST_LIST = {TEST_FUNC(test_strings_trim),
-             TEST_FUNC(test_strings_split),
-             TEST_FUNC(test_tokenize_query_kind),
-             TEST_FUNC(test_parse_query),
-             TEST_FUNC(test_tokenize_query_loc),
-             TEST_FUNC(test_parse_csv),
-             {NULL, NULL}};
+TEST_LIST = {TEST_FUNC(test_strings_trim),        TEST_FUNC(test_strings_split),
+             TEST_FUNC(test_tokenize_query_kind), TEST_FUNC(test_parse_query),
+             TEST_FUNC(test_tokenize_query_loc),  TEST_FUNC(test_parse_csv),
+             TEST_FUNC(test_trie_tree),           {NULL, NULL}};
 #endif
 
 #ifdef DEBUG_MAIN
